@@ -13,6 +13,8 @@ Forge now includes a task-aware runtime layer intended to make the configured mo
 - **Evidence loop:** system instructions explicitly require inspect → implement → test → inspect output → repair → retest → review, with honest reporting when execution is blocked.
 - **Purpose routing:** engineering tasks use the coding profile, research tasks use the review profile, and ordinary conversation uses the general profile. Task-specific profiles activate only when fully configured.
 
+Runtime tuning: `FORGE_AGENT_TOOL_BUDGET` controls the maximum selected tool schemas per cycle (default 42; clamped to 16–64). `FORGE_CONTEXT_BUDGET_CHARS` controls when older context is compacted (default 90,000 characters; clamped to 32,000–240,000). Keep the budget below the active model's real context capacity to leave room for system instructions and tool schemas. These are guardrails, not a guarantee that every provider accepts the same context size.
+
 These changes do not enlarge the underlying language model or create a new neural network. They improve how Forge supplies context, discovers capabilities, and uses tool feedback. Results still depend on the configured model, its context/tool-call quality, sandbox availability, and connected services.
 
 ## Runtime design
