@@ -72,6 +72,15 @@ Do not put API keys in source control. Configure secrets through the Render dash
 
 SQLite and session files survive process restarts when the filesystem remains intact. **They do not survive every redeploy on an ephemeral filesystem.** For cross-deploy task and conversation persistence, attach a persistent disk to the service and set both `TASK_DB_PATH` and `FORGE_SESSION_DIR` to paths under its mount directory. The current free Render service plan may not support persistent disks; if not, use a supported persistent storage service before relying on checkpoints across deploys.
 
+## Specialist team reviews
+
+The Project Brain panel can run an on-demand, sequential review from three specialist roles: architect, security reviewer, and test strategist. It builds a bounded workspace map and sends it with the review goal to the configured model. Configure `FORGE_REVIEW_API_KEY`, `FORGE_REVIEW_BASE_URL`, and `FORGE_REVIEW_MODEL` together to use a dedicated reviewer model; otherwise the primary model is reused. This advisory review does not edit files or claim tests were executed.
+
+- `GET /api/agents/specialists`
+- `POST /api/agents/team-review` with `{ "session": "...", "goal": "..." }`
+
+The model layer also supports optional task-specific `FORGE_CODING_*`, `FORGE_REVIEW_*`, and `FORGE_SUMMARY_*` profiles. A profile activates only when its API key, base URL, and model are all set; otherwise Forge uses the normal primary provider and its configured fallback behavior.
+
 ## Visual workflow builder
 
 The Project Brain panel can save and run reusable, session-scoped workflows. Supported steps are `map_workspace`, `search_workspace`, `security_scan`, and `list_memory`. Workflows are limited to 20 steps and cannot run arbitrary shell commands or external side effects. Step results are persisted during execution so failed runs retain their completed-step output.
