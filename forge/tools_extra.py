@@ -132,10 +132,10 @@ def run_tests(cwd="."):
 def lint(cwd="."):
     return run("ruff check ." if any(safe(cwd).glob("*.py")) or (safe(cwd) / "pyproject.toml").exists() else "npx --no-install eslint .", cwd, 180)
 
-@tool("python_eval", "Run a Python snippet for quick computation/experiments.", {"code": ("string", "")})
+@tool("python_eval", "Run a Python snippet for quick computation/experiments. Requires the isolated sandbox runner; refuses host execution by default.", {"code": ("string", "")})
 def python_eval(code): return run(f"python3 -c {json.dumps(code)}", ".", 60)
 
-@tool("node_eval", "Run a JavaScript snippet with Node.", {"code": ("string", "")})
+@tool("node_eval", "Run a JavaScript snippet with Node inside the configured isolated sandbox; refuses host execution by default.", {"code": ("string", "")})
 def node_eval(code): return run(f"node -e {json.dumps(code)}", ".", 60)
 
 @tool("pip_install", "pip install packages.", {"packages": ("string", "space-separated")})
