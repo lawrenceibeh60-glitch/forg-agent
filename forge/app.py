@@ -747,7 +747,47 @@ def security_report(sid: str):
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
 
-@app.get("/api/evals/catalog")
+import workflows as forge_workflows
+
+class WorkflowRequest(BaseModel):
+    session: str
+    name: str
+    steps: list[dict]
+
+@app.get("/api/workflows")
+def workflows_list(sid: str):
+    if not _valid_sid(sid):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
+    try:
+        return {"workflows": forge_workflows.list_for_session(sid)}
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+@app.post("/api/workflows")
+def workflows_save(body: WorkflowRequest):
+    if not _valid_sid(body.session):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
+    try:
+        return {"ok": True, "workflow": forge_workflows.save(body.session, body.name, body.steps)}
+    except (ValueError, TypeError) as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+@app.delete("/api/workflows/{workflow_id}")
+def workflows_delete(workflow_id: str, sid: str):
+    if not _valid_sid(sid):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
+    return {"ok": forge_workflows.delete(sid, workflow_id)}
+
+@app.post("/api/workflows/{workflow_id}/run")
+def workflows_run(workflow_id: str, sid: str):
+    if not _valid_sid(sid):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
+    try:
+        return forge_workflows.run(sid, workflow_id, tools, project_intelligence)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+@app.get("/api/evals/catalog")@app.get("/api/evals/catalog")
 def evals_catalog():
     return project_intelligence.evaluation_catalog()
 
