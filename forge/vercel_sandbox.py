@@ -47,7 +47,7 @@ def status() -> dict:
                    if enabled and sdk else
                    "Set SANDBOX_VERCEL=1 and install the official vercel Python SDK."
                    if not enabled else "The official Vercel Python SDK is unavailable."),
-        "network": "deny-all",
+        "network": "allow-all" if os.getenv("SANDBOX_NETWORK", "0") == "1" else "deny-all",
     }
 
 
