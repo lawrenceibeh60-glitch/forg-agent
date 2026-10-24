@@ -901,7 +901,7 @@ async def evals_run(body: EvalRunRequest):
         report["persistence_error"] = type(exc).__name__
     return report
 
-@app.get("/api/ops/overview")@app.get("/api/ops/overview")
+@app.get("/api/ops/overview")
 def ops_overview():
     saved = connections.load_connections()
     try:
