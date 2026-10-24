@@ -1,15 +1,36 @@
-# Forge — coding agent
-```
-pip install -r requirements.txt   # Python 3.10+
-cp .env.example .env
-uvicorn app:app --reload          # http://localhost:8000
-```
-- **Models**: Settings → Models. Pick OpenAI, Anthropic, Gemini, Groq, OpenRouter, DeepSeek, Mistral, xAI, Together, Ollama, Kiro or Custom (any OpenAI-compatible URL), paste the key, name the model. Keys are stored in data/providers.json (plain text, keep that folder private).
-- **MCP**: Settings → paste any `{"mcpServers": {...}}` config (stdio or HTTP/SSE). npx servers need Node.
-- **Safety**: shell, git, PR, deploy and MCP tools ask for approval unless Auto-approve is on. Set APP_PASSWORD to require a login.
-- **Sandbox**: each chat gets its own folder (workspace/<chat-id>): create files, run code, start servers, download as .zip. Set SANDBOX_DOCKER=1 for container isolation.
-- **Tools**: 100+ built in. Toggle in Settings → Tools. Add yours with @tool(...) in tools_extra.py or tools_ops.py.
-- GitHub token and Render key go in .env (GITHUB_TOKEN, RENDER_API_KEY).
+# Forge — xKiro-powered coding agent
 
-## Making it smarter
-Forge's intelligence comes from the model you plug in. For Claude-level results add an Anthropic key and pick a current Claude model; weaker models will be weaker. Forge adds: a Claude-style system prompt (prompts.py), a `think` scratchpad, automatic context compaction for long sessions, retries on rate limits, and project instructions (put FORGE.md, AGENTS.md or CLAUDE.md in any repo and the agent reads it).
+## Run locally
+
+From this directory (`forge/`):
+
+```bash
+python -m venv .venv
+# Windows: .venv\\Scripts\\activate
+# macOS/Linux: source .venv/bin/activate
+python -m pip install -r requirements.txt
+cp .env.example .env  # Windows PowerShell: Copy-Item .env.example .env
+# Edit .env and set XKIRO_API_KEY
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Open http://localhost:8000. xKiro is configured as the default provider when `XKIRO_API_KEY` is present. Defaults are `https://api.xkiro.com/v1` and `mistralai/devstral-medium`; override them with `XKIRO_BASE_URL` and `XKIRO_MODEL` if your account uses a different endpoint/model. Legacy `KIRO_*` variables remain supported.
+
+## Deploy to Render
+
+1. Push this repository to GitHub.
+2. In Render, choose **New → Blueprint** and select this repository; Render will read the root `render.yaml`.
+3. Set the prompted secret values: `XKIRO_API_KEY`, `APP_PASSWORD`, and any integrations you need (`GITHUB_TOKEN`, `RENDER_API_KEY`). Keep secrets in Render's Environment dashboard, not in Git.
+4. Deploy. Render health checks use `/healthz`.
+
+The Blueprint runs the service from `forge/` with `python -m pip install -r requirements.txt` and `uvicorn app:app --host 0.0.0.0 --port $PORT`.
+
+**Persistence note:** Render's default filesystem is ephemeral. Chat sessions, provider settings saved in `data/`, MCP configs and workspace files may be lost on redeploy/restart unless you attach a persistent disk and configure paths accordingly. This app currently uses local JSON files, so a persistent disk is recommended for retaining its state. Do not store production secrets in the repository.
+
+## Features and configuration
+
+- Models: Settings → Models supports OpenAI-compatible providers, Anthropic, xKiro and custom endpoints. Keys added in the UI are stored in `data/providers.json` as plain text, so keep the instance private and use `APP_PASSWORD`.
+- MCP: Settings → paste an `{"mcpServers": {...}}` config (stdio or HTTP/SSE). Stdio MCP servers need their runtimes installed.
+- Safety: shell, git, PR, deploy and MCP tools ask for approval unless Auto-approve is enabled.
+- Sandbox: each chat gets its own `workspace/<chat-id>` folder; code can be created, run and downloaded as a ZIP. `SANDBOX_DOCKER=1` enables optional Docker isolation when Docker is available.
+- GitHub and Render integrations use `GITHUB_TOKEN` and `RENDER_API_KEY`.
