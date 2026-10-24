@@ -106,6 +106,32 @@ def _sync_back(source: Path, target: Path):
         shutil.copy2(source_file, dest)
     return len(changed)
 
+
+def creation_failure_diagnosis(exc, api=None) -> str:
+    """Explain Render sandbox 'not found' failures without retrying creation."""
+    message = f"{type(exc).__name__}: {str(exc)[:700]}"
+    lowered = message.lower()
+    if "not found" not in lowered and "404" not in lowered:
+        return message
+    group_note = ""
+    if api is not None:
+        try:
+            groups_result = api.list_groups()
+            groups = getattr(groups_result, "groups", None)
+            if groups is not None and not groups:
+                group_note = " The Render API reports no sandbox group for this workspace."
+            elif groups:
+                group_note = " A sandbox group is visible, so check whether this API key can create sandboxes in that group."
+        except Exception as group_exc:
+            group_note = " A separate sandbox-group check also failed (" + type(group_exc).__name__ + ")."
+    return (
+        "Render returned 'not found' while creating the sandbox. Forge stopped here and did not repeat the create request."
+        + group_note
+        + " Verify in Render that Sandboxes are enabled for this workspace and that RENDER_WORKSPACE_ID matches that workspace; "
+          "the RENDER_API_KEY must have access to it. This is a Render provisioning/access problem, not a project-code test failure."
+    )
+
+
 def run(command: str, cwd: Path, timeout: int = 120) -> str:
     if not configured():
         return "Render sandbox is not configured. Required: SANDBOX_RENDER=1, ALLOW_SHELL=1, RENDER_API_KEY, and RENDER_WORKSPACE_ID."
@@ -172,7 +198,8 @@ def run(command: str, cwd: Path, timeout: int = 120) -> str:
             evidence = "exit status unavailable; verification cannot be confirmed" if exit_code is None else f"exit {exit_code}"
             return f"{result}\n[{evidence}; synced {synced} changed file(s); staged {count} file(s), {size // 1024} KB]"
         except Exception as exc:
-            return f"Render sandbox execution failed closed: {type(exc).__name__}: {str(exc)[:500]}"
+            detail = creation_failure_diagnosis(exc, api) if sandbox is None else f"{type(exc).__name__}: {str(exc)[:500]}"
+            return "Render sandbox creation failed closed: " + detail
         finally:
             if sandbox is not None:
                 try: api.terminate(sandbox.id)
