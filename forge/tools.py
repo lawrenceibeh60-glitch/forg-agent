@@ -1,4 +1,4 @@
-import os, re, json, subprocess, httpx
+import os, re, json, subprocess, httpx, connections
 from pathlib import Path
 
 from contextvars import ContextVar
@@ -39,7 +39,8 @@ def sh(cmd, cwd=None, timeout=120):
         cmd = f"docker run --rm -v {shlex.quote(str(root))}:/work -w {shlex.quote('/work/' + rel)} {os.getenv('SANDBOX_IMAGE', 'nikolaik/python-nodejs:python3.12-nodejs20')} sh -c {shlex.quote(cmd)}"; cwd = root
     r = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True, timeout=timeout)
     out = r.stdout + r.stderr
-    if os.getenv("GITHUB_TOKEN"): out = out.replace(os.environ["GITHUB_TOKEN"], "***")
+    token = connections.get_access_token("github") or os.getenv("GITHUB_TOKEN", "")
+    if token: out = out.replace(token, "***")
     return (out.strip() or "(no output)")[-6000:] + f"\n[exit {r.returncode}]"
 
 # ---------- filesystem & code ----------
@@ -95,8 +96,11 @@ def web_fetch(url):
 
 # ---------- git / GitHub ----------
 def gh(method, path, **kw):
+    token = connections.get_access_token("github") or os.getenv("GITHUB_TOKEN", "")
+    if not token:
+        return {"error": "GitHub not connected. Open Settings → Connections → Connect GitHub."}
     r = httpx.request(method, f"https://api.github.com{path}", timeout=30, **kw,
-        headers={"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}", "Accept": "application/vnd.github+json"})
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"})
     return r.json() if r.status_code < 400 else {"error": r.status_code, "body": r.text[:300]}
 
 @tool("github_list_repos", "List the user's GitHub repos.", {})
@@ -105,8 +109,11 @@ def github_list_repos():
 
 @tool("git_clone", "Clone a GitHub repo (owner/name) into the workspace.", {"repo": ("string", "owner/name")})
 def git_clone(repo):
-    url = f"https://{os.environ['GITHUB_TOKEN']}@github.com/{repo}.git"
-    return sh(f"git clone {url} {repo.split('/')[1]}").replace(os.environ["GITHUB_TOKEN"], "***")
+    token = connections.get_access_token("github") or os.getenv("GITHUB_TOKEN", "")
+    if not token:
+        return "GitHub not connected. Open Settings → Connections → Connect GitHub."
+    url = f"https://x-access-token:{token}@github.com/{repo}.git"
+    return sh(f"git clone {url} {repo.split('/')[1]}").replace(token, "***")
 
 @tool("git", "Run a git command inside a cloned repo (status, diff, checkout -b, add, commit, push).", {"repo_dir": ("string", "folder name"), "args": ("string", "git arguments")})
 def git(repo_dir, args):
