@@ -125,10 +125,24 @@ async def compact(msgs):
             {"role": "assistant", "content": "Continuity state loaded. Recent conversation remains available below."}
         ]
 
+def session_path(sid):
+    if not isinstance(sid, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid):
+        raise ValueError("invalid session id")
+    return SD / (sid + ".json")
+
+
 def load(sid):
-    f = SD / f"{sid}.json"
+    f = session_path(sid)
     return json.loads(f.read_text()) if f.exists() else [{"role": "system", "content": system()}]
-def save(sid, msgs): (SD / f"{sid}.json").write_text(json.dumps(msgs))
+
+
+def save(sid, msgs):
+    f = session_path(sid)
+    temp = f.with_suffix(".tmp")
+    temp.write_text(json.dumps(msgs, ensure_ascii=False))
+    temp.replace(f)
+
+
 def sse(ev, data): return f"data: {json.dumps({'type': ev, **data})}\n\n"
 
 class Req(BaseModel):
@@ -144,6 +158,8 @@ class Appr(BaseModel):
 @app.post("/api/chat")
 async def chat(req: Req):
     sid = req.session or uuid.uuid4().hex
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
     msgs = load(sid); msgs[0]["content"] = system()
     user_content = req.message
     if req.images:
@@ -396,8 +412,9 @@ async def prov_test():
 
 @app.get("/api/sandbox/status")
 def sandbox_status():
-    docker_ready = bool(shutil.which("docker")) and os.getenv("SANDBOX_DOCKER", "0") == "1"
-    host_exec = os.getenv("SANDBOX_ALLOW_HOST_EXECUTION", "0") == "1"
+    shell_enabled = os.getenv("ALLOW_SHELL", "0") == "1"
+    docker_ready = shell_enabled and bool(shutil.which("docker")) and os.getenv("SANDBOX_DOCKER", "0") == "1"
+    host_exec = shell_enabled and os.getenv("SANDBOX_ALLOW_HOST_EXECUTION", "0") == "1"
     return {"files": True, "download_zip": True,
             "execution": "docker-isolated" if docker_ready else ("development-host" if host_exec else "disabled"),
             "safe_reason": "" if docker_ready or host_exec else "This host has no enabled isolated command runner. File editing and downloads work; arbitrary shell execution remains disabled."}
