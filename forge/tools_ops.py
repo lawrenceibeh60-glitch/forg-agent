@@ -184,7 +184,7 @@ def render_owners():
         owner = item.get("owner", item) if isinstance(item, dict) else {}
         if isinstance(owner, dict) and owner.get("id"):
             output.append(f"{owner['id']}  {owner.get('name', '(unnamed)')}")
-    return "\\n".join(output) or "Render returned no owners."
+    return "\n".join(output) or "Render returned no owners."
 
 @tool("render_service_info", "Details of a Render service: repo, branch, URL, auto-deploy, status.", {"service_id": ("string", "srv-...")})
 def render_service_info(service_id):
@@ -204,7 +204,7 @@ def render_env_vars(service_id):
         env = item.get("envVar", item)
         if isinstance(env, dict) and env.get("key"):
             output.append(env["key"])
-    return "\\n".join(output) or "No environment variable names returned."
+    return "\n".join(output) or "No environment variable names returned."
 
 def _act(service_id, verb): return json.dumps(rd("POST", f"/services/{service_id}/{verb}"))[:200]
 @tool("render_restart", "Restart a Render service.", {"service_id": ("string", "")})
