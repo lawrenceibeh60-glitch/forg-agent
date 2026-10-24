@@ -64,8 +64,10 @@ def _stage(source: Path, target: Path):
 
 
 def _sync_back(source: Path, target: Path):
+    """Validate the entire sandbox result before applying any output files."""
     count = total = 0
     source, target = source.resolve(), target.resolve()
+    pending = []
     for p in source.rglob("*"):
         if p.is_symlink() or not p.is_file():
             continue
@@ -77,8 +79,6 @@ def _sync_back(source: Path, target: Path):
         if count > MAX_FILES or total > MAX_BYTES:
             raise RuntimeError("sandbox output exceeded sync limits; refusing to sync further files")
         raw_dest = target / rel
-        # Check the lexical destination before resolving it: resolve() follows a
-        # symlink and would otherwise hide that the destination itself is a link.
         if raw_dest.is_symlink():
             raise RuntimeError("sandbox output attempted to overwrite a symlink")
         resolved_parent = raw_dest.parent.resolve()
@@ -87,16 +87,24 @@ def _sync_back(source: Path, target: Path):
         dest = resolved_parent / raw_dest.name
         if dest.is_symlink():
             raise RuntimeError("sandbox output attempted to overwrite a symlink")
+        pending.append((p, dest))
+    # Validate every path first so a malicious late file cannot leave a partial sync.
+    changed = []
+    for source_file, dest in pending:
         if dest.is_file():
             try:
-                if dest.stat().st_size == p.stat().st_size and hashlib.sha256(dest.read_bytes()).digest() == hashlib.sha256(p.read_bytes()).digest():
+                if dest.stat().st_size == source_file.stat().st_size and hashlib.sha256(dest.read_bytes()).digest() == hashlib.sha256(source_file.read_bytes()).digest():
                     continue
             except OSError:
                 pass
+        changed.append((source_file, dest))
+    for source_file, dest in changed:
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(p, dest)
-    return count
-
+        # Re-check after parent creation in case the target tree changed.
+        if dest.is_symlink():
+            raise RuntimeError("sandbox output attempted to overwrite a symlink")
+        shutil.copy2(source_file, dest)
+    return len(changed)
 
 def run(command: str, cwd: Path, timeout: int = 120) -> str:
     if not configured():
