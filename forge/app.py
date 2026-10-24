@@ -1,4 +1,4 @@
-import os, json, uuid, asyncio, hmac, hashlib, secrets, time, tempfile
+import os, json, uuid, asyncio, hmac, hashlib, secrets, time, tempfile, httpx
 from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
@@ -880,6 +880,45 @@ def ops_overview():
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
+
+@app.get("/api/github/mission")
+async def github_mission(repo: str = ""):
+    """GitHub mission-control snapshot; credentials are never returned."""
+    token = connections.get_access_token("github") or os.getenv("GITHUB_TOKEN", "")
+    if not token:
+        return {"connected": False, "message": "Connect GitHub in Settings or configure GITHUB_TOKEN.", "repositories": [], "pull_requests": [], "workflow_runs": []}
+    headers = {"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+    async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+        try:
+            user_response = await client.get("https://api.github.com/user")
+            if user_response.status_code >= 400:
+                return JSONResponse({"connected": False, "message": "GitHub rejected the connection. Reconnect GitHub in Settings.", "repositories": [], "pull_requests": [], "workflow_runs": []}, status_code=502)
+            user = user_response.json()
+            repos_response = await client.get("https://api.github.com/user/repos", params={"sort": "updated", "per_page": 12, "type": "all"})
+            if repos_response.status_code >= 400:
+                return JSONResponse({"connected": True, "login": user.get("login", ""), "message": "Could not load repositories from GitHub.", "repositories": [], "pull_requests": [], "workflow_runs": []}, status_code=502)
+            repositories = [{"full_name": r.get("full_name"), "private": bool(r.get("private")), "default_branch": r.get("default_branch", "main"), "updated_at": r.get("updated_at"), "html_url": r.get("html_url")} for r in repos_response.json() if isinstance(r, dict)]
+            result = {"connected": True, "login": user.get("login", ""), "repositories": repositories, "pull_requests": [], "workflow_runs": []}
+            if repo:
+                if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+                    return JSONResponse({"error": "repo must be owner/name"}, status_code=400)
+                pr_response, runs_response = await asyncio.gather(
+                    client.get(f"https://api.github.com/repos/{repo}/pulls", params={"state": "open", "per_page": 8}),
+                    client.get(f"https://api.github.com/repos/{repo}/actions/runs", params={"per_page": 8})
+                )
+                if pr_response.status_code == 200:
+                    result["pull_requests"] = [{"number": p.get("number"), "title": p.get("title"), "state": p.get("state"), "draft": p.get("draft"), "html_url": p.get("html_url"), "head": (p.get("head") or {}).get("ref"), "base": (p.get("base") or {}).get("ref")} for p in pr_response.json()]
+                else:
+                    result["pull_request_error"] = f"GitHub returned HTTP {pr_response.status_code}"
+                if runs_response.status_code == 200:
+                    result["workflow_runs"] = [{"name": r.get("name"), "status": r.get("status"), "conclusion": r.get("conclusion"), "branch": r.get("head_branch"), "html_url": r.get("html_url"), "created_at": r.get("created_at")} for r in (runs_response.json().get("workflow_runs") or [])]
+                else:
+                    result["workflow_error"] = f"GitHub returned HTTP {runs_response.status_code}"
+            return result
+        except httpx.TimeoutException:
+            return JSONResponse({"error": "GitHub request timed out. Try again shortly."}, status_code=504)
+        except (httpx.HTTPError, ValueError):
+            return JSONResponse({"error": "Could not retrieve GitHub mission-control data."}, status_code=502)
 
 @app.get("/api/status")
 def status():
