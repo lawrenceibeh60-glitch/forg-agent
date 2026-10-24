@@ -122,6 +122,14 @@ def start_preview(session: str, root: Path, path: str = ".", command: str = "",
     client = Render(token=os.getenv("RENDER_API_KEY"), owner_id=os.getenv("RENDER_WORKSPACE_ID"))
     api = client.experimental.sandboxes
     sandbox = None
+    records = _state()
+    old = records.pop(session, None)
+    if old and old.get("sandbox_id"):
+        try:
+            api.terminate(old["sandbox_id"])
+        except Exception:
+            pass
+        _save(records)
     try:
         # Previews need outbound network access for package installation and the
         # temporary HTTPS tunnel. They remain isolated from the Forge service.
@@ -160,10 +168,23 @@ def start_preview(session: str, root: Path, path: str = ".", command: str = "",
         output, code = _events(api, sandbox.id, app_cmd, 30)
         if code not in (0, None):
             raise RuntimeError("could not start the project server: " + output[-1200:])
+        ready = False
+        for _ in range(20):
+            probe_code = None
+            for event in api.exec(sandbox.id, "curl -sS --max-time 2 -o /dev/null http://127.0.0.1:" + str(selected_port)):
+                if hasattr(event, "exit_code"):
+                    probe_code = event.exit_code
+            if probe_code == 0:
+                ready = True
+                break
+            time.sleep(1)
+        if not ready:
+            logs, _ = _events(api, sandbox.id, "tail -n 30 /tmp/forge-app.log", 10)
+            raise RuntimeError("app did not listen on port " + str(selected_port) + ". App log: " + logs[-1600:])
         tunnel_cmd = (
-            "CF=$(command -v cloudflared || echo /tmp/cloudflared); "
-            "nohup "$CF" tunnel --url http://127.0.0.1:" + str(selected_port) +
-            " --no-autoupdate >/tmp/forge-tunnel.log 2>&1 </dev/null & echo $! >/tmp/forge-tunnel.pid"
+            'CF=$(command -v cloudflared || echo /tmp/cloudflared); '
+            'nohup "$CF" tunnel --url http://127.0.0.1:' + str(selected_port) +
+            ' --no-autoupdate >/tmp/forge-tunnel.log 2>&1 </dev/null & echo $! >/tmp/forge-tunnel.pid'
         )
         output, code = _events(api, sandbox.id, tunnel_cmd, 30)
         if code not in (0, None):
@@ -180,13 +201,6 @@ def start_preview(session: str, root: Path, path: str = ".", command: str = "",
         if not url:
             logs, _ = _events(api, sandbox.id, "tail -n 35 /tmp/forge-tunnel.log; echo '--- app log ---'; tail -n 35 /tmp/forge-app.log", 15)
             raise RuntimeError("the app/tunnel did not become ready. Recent logs: " + logs[-2200:])
-        records = _state()
-        old = records.get(session)
-        if old and old.get("sandbox_id") and old.get("sandbox_id") != sandbox.id:
-            try:
-                api.terminate(old["sandbox_id"])
-            except Exception:
-                pass
         records[session] = {"sandbox_id": sandbox.id, "url": url, "port": selected_port,
                             "kind": selected.get("kind", "custom"), "created_at": time.time(),
                             "expires_in_seconds": MAX_PREVIEW_SECONDS}
