@@ -57,6 +57,9 @@ ALIASES = {
     "database": "sql_query json_get csv_preview dependency_graph",
     "security": "risk_report env_keys search_code web_search",
     "memory": "remember project_memory_search project_memory_save project_memory_list",
+    "tool": "tool_catalog",
+    "capability": "tool_catalog",
+    "available": "tool_catalog",
     "image": "image_generate image_edit web_search",
     "workflow": "workflow_save workflow_list workflow_run",
     "mcp": "mcp",
@@ -68,7 +71,7 @@ ALIASES = {
 CORE_TOOLS = {
     "list_files", "tree", "glob_files", "read_file", "read_many", "search_code",
     "outline", "detect_stack", "update_plan", "run_tests", "lint", "run_command",
-    "git_changes", "git_log", "web_search", "web_fetch", "check_url",
+    "git_changes", "git_log", "web_search", "web_fetch", "check_url", "tool_catalog",
 }
 CODING_TERMS = re.compile(
     r"\b(code|coding|repo|repository|project|file|folder|bug|fix|implement|build|"
