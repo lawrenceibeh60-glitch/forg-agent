@@ -2,7 +2,7 @@ name: Forge tests
 
 on:
   push:
-    branches: [main, feat/forge-agent-runtime, feat/forge-agentic-personality-sandbox]
+    branches: [main, feat/forge-agent-runtime, feat/forge-agentic-personality-sandbox, 'fix/**']
   pull_request:
     branches: [main, feat/forge-agentic-personality-sandbox]
   workflow_dispatch:
