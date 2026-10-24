@@ -96,7 +96,7 @@ dialog input,dialog select,dialog textarea{width:100%;margin:4px 0;padding:9px 1
 <textarea id="mcfg" rows="3" placeholder='Paste MCP config JSON, e.g. {"mcpServers":{"fs":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","."]}}}'></textarea>
 <button class="btn pri" onclick="addMcp()">Connect</button>
 <h4>Tools <span id="tcount" style="font-weight:400"></span></h4><input id="tq" placeholder="Search tools" oninput="drawT()"><div id="tlist" style="max-height:260px;overflow:auto"></div>
-<h4>Connections</h4><div id="st"></div></dialog>
+<h4>Connections</h4><div id="account-connections"></div><div id="st"></div></dialog>
 <script>
 const $=s=>document.querySelector(s),log=$('#log'),feed=$('#feed'),H={'Content-Type':'application/json'};let sid=null,busy=false,ctrl=null;
 const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -116,7 +116,7 @@ const PILLS={'Clone a repo':'List my GitHub repos and clone the one I pick','Fix
 function welcome(){const h=new Date().getHours();log.innerHTML=`<div class="hello">${STAR}${h<5?'Burning the midnight oil':h<12?'Good morning':h<18?'Good afternoon':'Good evening'}, builder</div>`;empty(true);
 $('#pills').innerHTML=Object.keys(PILLS).map(k=>`<button>${ico(PI[k])}${k}</button>`).join('');$('#pills').querySelectorAll('button').forEach(b=>b.onclick=()=>{$('#in').value=PILLS[b.textContent];$('#in').focus()})}
 function newChat(){sid=null;welcome();if(innerWidth<800)$('#side').classList.add('hide')}
-async function refresh(){try{const s=await j('/api/status');$('#st').innerHTML=Object.entries(s).map(([k,v])=>`<div class="row"><i class="dot ${v?'on':''}"></i><b>${k}</b></div>`).join('');
+async function refresh(){try{const s=await j('/api/status');$('#st').innerHTML=Object.entries(s).map(([k,v])=>`<div class="row"><i class="dot ${v?'on':''}"></i><b>${k}</b></div>`).join('');await drawConnections();
 $('#tree').textContent=(await j('/api/files?sid='+(sid||''))).files.join('\n');
 $('#sess').innerHTML=(await j('/api/sessions')).map(x=>`<a onclick="openS('${x.id}')">${esc(x.title)}</a>`).join('');
 const p=await j('/api/providers'),a=p.providers.find(x=>x.id===p.active);$('#model').textContent=a?a.name:'Add a model'}catch{}}
@@ -143,6 +143,8 @@ else if(d.type==='tool_result'){const el=tl[d.id];el.querySelector('.spin').oute
 else if(d.type==='error')bot.insertAdjacentHTML('beforeend',`<p style="color:var(--del)">${esc(d.error)}</p>`);
 feed.scrollTop=feed.scrollHeight}}}catch(x){if(x.name!=='AbortError')bot.insertAdjacentHTML('beforeend',`<p style="color:var(--del)">${esc(x.message||'Request failed')}</p>`)}
 busy=false;$('#go').innerHTML=ico('up');refresh()};
+async function drawConnections(){try{const c=await j('/api/connections');$('#account-connections').innerHTML=`<div class="row"><i class="dot ${c.github.connected?'on':''}"></i><b>GitHub ${c.github.connected?'· @'+esc(c.github.login):'· Not connected'}</b>${c.github.connected?'<button class="btn" onclick="disconnectGithub()">Disconnect</button>':'<button class="btn pri" onclick="location.href=\'/auth/github\'">Connect GitHub</button>'}</div><div class="row"><i class="dot ${c.render.connected?'on':''}"></i><b>Render ${c.render.connected?'· Connected':'· Not connected'}</b><span style="font-size:12px;color:var(--mute)">${c.render.connected?'Connected':'Render REST API currently uses a Render API key; OAuth MCP flow is not wired in this version.'}</span></div>`}catch{}}
+async function disconnectGithub(){await post('/api/connections/github/disconnect');await drawConnections();await refresh()}
 async function openSet(){const p=await j('/api/providers');
 $('#pre').innerHTML=Object.keys(p.presets).map(k=>`<option>${k}</option>`).join('');
 $('#plist').innerHTML=p.providers.map(x=>`<div class="row"><i class="dot ${x.id===p.active?'on':''}"></i><b>${esc(x.name)}</b><button class="btn" onclick="useP('${x.id}')">Use</button><button class="btn" onclick="delP('${x.id}')">Remove</button></div>`).join('')||'<div class="row" style="color:var(--mute)">No models yet</div>';
