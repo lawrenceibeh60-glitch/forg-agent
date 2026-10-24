@@ -207,3 +207,13 @@ def test_vercel_sandbox_command_timeout_handles_bad_environment(monkeypatch):
     import vercel_sandbox
     monkeypatch.setenv("SANDBOX_COMMAND_TIMEOUT", "invalid")
     assert vercel_sandbox._command_timeout(600) == 600
+
+
+def test_port_forward_language_routes_to_preview_link_tool():
+    available = [schema("preview_start"), schema("preview_stop"), schema("run_command"),
+                 schema("bg_start"), schema("bg_logs"), schema("check_url")]
+    for request in ("Expose port 3000 and give me the port-forward link",
+                    "Start the server and return its public URL",
+                    "Open the localhost app through a live preview"):
+        names = {x["function"]["name"] for x in agent_runtime.select_schemas(available, request)}
+        assert "preview_start" in names
