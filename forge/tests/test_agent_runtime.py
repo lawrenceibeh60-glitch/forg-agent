@@ -34,7 +34,7 @@ def test_general_question_does_not_receive_every_tool():
 
 def test_workspace_snapshot_includes_manifests_and_excludes_secret_values(tmp_path):
     (tmp_path / "README.md").write_text("# Demo\nA useful app")
-    (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\nAPI_KEY = \"top-secret-manifest-value\"")
     (tmp_path / "app.py").write_text("def main():\n    return 1")
     (tmp_path / ".env").write_text("API_KEY=very-secret-value")
     (tmp_path / "node_modules").mkdir()
@@ -44,10 +44,12 @@ def test_workspace_snapshot_includes_manifests_and_excludes_secret_values(tmp_pa
     assert "pyproject.toml" in brief
     assert "app.py" in brief
     assert "very-secret-value" not in brief
+    assert "top-secret-manifest-value" not in brief
     assert "node_modules" not in brief
 
 
 def test_classify_task_uses_intent():
     assert agent_runtime.classify_task("Fix the API and run tests") == "engineering"
+    assert agent_runtime.classify_task("Add dark mode to the interface") == "engineering"
     assert agent_runtime.classify_task("Research the latest documentation and compare sources") == "research"
     assert agent_runtime.classify_task("Explain the idea of voltage") == "general"
