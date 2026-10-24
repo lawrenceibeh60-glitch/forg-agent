@@ -124,17 +124,62 @@ def web_fetch(url):
     return re.sub(r"<[^>]+>", " ", r.text)[:8000]
 
 # ---------- git / GitHub ----------
+def _response_json(response):
+    """Parse JSON APIs without assuming every response is JSON."""
+    try:
+        return response.json()
+    except (ValueError, json.JSONDecodeError):
+        return {"message": (response.text or "").strip()[:1000] or f"HTTP {response.status_code} returned an empty body"}
+
+def _api_error(data, status=None):
+    if isinstance(data, dict) and (data.get("error") or (data.get("message") and status and status >= 400)):
+        body = data.get("body") or data.get("message") or data.get("error")
+        details = data.get("errors")
+        if details:
+            body = f"{body}; details: {details}"
+        return f"API error{f' ({status})' if status else ''}: {body}"
+    return ""
+
+def _as_api_list(data, label):
+    """Never iterate an error object or a scalar as though it were an API array."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        err = _api_error(data, data.get("status") if isinstance(data.get("status"), int) else None)
+        if err:
+            return err
+        return f"{label} returned an unexpected object instead of a list: {json.dumps(data)[:700]}"
+    return f"{label} returned {type(data).__name__}, not a list: {str(data)[:500]}"
+
 def gh(method, path, **kw):
     token = connections.get_access_token("github") or os.getenv("GITHUB_TOKEN", "")
     if not token:
-        return {"error": "GitHub not connected. Open Settings → Connections → Connect GitHub."}
-    r = httpx.request(method, f"https://api.github.com{path}", timeout=30, **kw,
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"})
-    return r.json() if r.status_code < 400 else {"error": r.status_code, "body": r.text[:300]}
+        return {"error": "GitHub is not connected. Open Settings → Connections → Connect GitHub."}
+    headers = dict(kw.pop("headers", {}) or {})
+    headers.setdefault("Authorization", f"Bearer {token}")
+    headers.setdefault("Accept", "application/vnd.github+json")
+    headers.setdefault("X-GitHub-Api-Version", "2022-11-28")
+    try:
+        response = httpx.request(method, f"https://api.github.com{path}", timeout=30, headers=headers, **kw)
+    except httpx.HTTPError as exc:
+        return {"error": "network", "message": f"Could not reach GitHub: {type(exc).__name__}: {exc}"}
+    data = _response_json(response)
+    if response.status_code >= 400:
+        message = data.get("message", "request failed") if isinstance(data, dict) else str(data)
+        errors = data.get("errors") if isinstance(data, dict) else None
+        return {"error": response.status_code, "message": message, "errors": errors, "body": (response.text or "")[:1000]}
+    return data
 
 @tool("github_list_repos", "List the user's GitHub repos.", {})
 def github_list_repos():
-    return "\n".join(f"{r['full_name']} - {r.get('description') or ''}" for r in gh("GET", "/user/repos?per_page=50&sort=updated"))
+    rows = _as_api_list(gh("GET", "/user/repos?per_page=50&sort=updated"), "GitHub repository list")
+    if isinstance(rows, str):
+        return rows
+    output = []
+    for item in rows:
+        if isinstance(item, dict) and item.get("full_name"):
+            output.append(f"{item['full_name']} - {item.get('description') or ''}")
+    return "\\n".join(output) or "GitHub returned no repositories (or entries without full_name)."
 
 @tool("git_clone", "Clone a GitHub repo (owner/name) into the workspace.", {"repo": ("string", "owner/name")})
 def git_clone(repo):
@@ -155,24 +200,61 @@ def github_create_pr(repo, head, base, title, body=""):
 
 @tool("github_issues", "List open issues of a repo.", {"repo": ("string", "owner/name")})
 def github_issues(repo):
-    return "\n".join(f"#{i['number']} {i['title']}" for i in gh("GET", f"/repos/{repo}/issues?state=open&per_page=30"))
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo or ""):
+        return "Invalid repository. Use owner/name."
+    rows = _as_api_list(gh("GET", f"/repos/{repo}/issues?state=open&per_page=30"), "GitHub issues endpoint")
+    if isinstance(rows, str):
+        return rows
+    output = []
+    for item in rows:
+        if isinstance(item, dict) and item.get("number") is not None and item.get("title"):
+            output.append(f"#{item['number']} {item['title']}" + (" [pull request]" if item.get("pull_request") else ""))
+    return "\\n".join(output) or "No open issues were returned for this repository."
 
 # ---------- Render ----------
 def rd(method, path, **kw):
-    r = httpx.request(method, f"https://api.render.com/v1{path}", timeout=30, **kw,
-        headers={"Authorization": f"Bearer {os.environ['RENDER_API_KEY']}", "Accept": "application/json"})
-    return r.json() if r.text else {"status": r.status_code}
+    token = os.getenv("RENDER_API_KEY", "")
+    if not token:
+        return {"error": "RENDER_API_KEY is not configured"}
+    headers = dict(kw.pop("headers", {}) or {})
+    headers.setdefault("Authorization", f"Bearer {token}")
+    headers.setdefault("Accept", "application/json")
+    try:
+        response = httpx.request(method, f"https://api.render.com/v1{path}", timeout=30, headers=headers, **kw)
+    except httpx.HTTPError as exc:
+        return {"error": "network", "message": f"Could not reach Render: {type(exc).__name__}: {exc}"}
+    data = _response_json(response) if response.text else {"status": response.status_code}
+    if response.status_code >= 400:
+        message = data.get("message", data.get("error", "request failed")) if isinstance(data, dict) else str(data)
+        return {"error": response.status_code, "message": message, "body": (response.text or "")[:1000]}
+    return data
 
 @tool("render_list_services", "List Render services.", {})
 def render_list_services():
-    return "\n".join(f"{s['service']['id']}  {s['service']['name']}  ({s['service']['type']})" for s in rd("GET", "/services?limit=50"))
+    rows = _as_api_list(rd("GET", "/services?limit=50"), "Render services endpoint")
+    if isinstance(rows, str):
+        return rows
+    output = []
+    for item in rows:
+        service = item.get("service", item) if isinstance(item, dict) else {}
+        if isinstance(service, dict) and service.get("id"):
+            output.append(f"{service['id']}  {service.get('name', '(unnamed)')}  ({service.get('type', 'unknown type')})")
+    return "\\n".join(output) or "Render returned no services."
 
 @tool("render_deploy", "Trigger a deploy of a Render service.", {"service_id": ("string", "srv-...")})
 def render_deploy(service_id): return json.dumps(rd("POST", f"/services/{service_id}/deploys", json={}))[:400]
 
 @tool("render_deploy_status", "Show recent deploys and their status.", {"service_id": ("string", "srv-...")})
 def render_deploy_status(service_id):
-    return "\n".join(f"{d['deploy']['id']} {d['deploy']['status']} {d['deploy']['createdAt']}" for d in rd("GET", f"/services/{service_id}/deploys?limit=5"))
+    rows = _as_api_list(rd("GET", f"/services/{service_id}/deploys?limit=5"), "Render deploys endpoint")
+    if isinstance(rows, str):
+        return rows
+    output = []
+    for item in rows:
+        deploy = item.get("deploy", item) if isinstance(item, dict) else {}
+        if isinstance(deploy, dict):
+            output.append(f"{deploy.get('id', '(unknown id)')} {deploy.get('status', 'unknown')} {deploy.get('createdAt', 'time unavailable')}")
+    return "\\n".join(output) or "Render returned no recent deploys."
 
 # ---------- long-term memory ----------
 MEM = Path("data/memory.md")
