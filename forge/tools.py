@@ -11,7 +11,28 @@ class _WS(os.PathLike):  # always points at the current chat's sandbox
     __str__ = __fspath__
 WS = _WS()
 def use(sid):
-    r = BASE / (re.sub(r"\W", "", sid or "") or "default")[:16]; r.mkdir(exist_ok=True); ROOT.set(r); return r
+    r = BASE / (re.sub(r"\\W", "", sid or "") or "default")[:16]; r.mkdir(exist_ok=True); ROOT.set(r); return r
+
+def list_files():
+    """List safe, workspace-relative files for the active chat session."""
+    root = ROOT.get().resolve()
+    ignored_dirs = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", ".forge", ".ssh", ".aws", ".azure", ".kube"}
+    ignored_names = {".env", ".netrc", ".npmrc", ".pypirc", "credentials", "credentials.json", "secrets.json", "id_rsa", "id_ed25519", "known_hosts"}
+    secret_suffixes = {".pem", ".key", ".p12", ".pfx", ".keystore", ".jks"}
+    found = []
+    for path in root.rglob("*"):
+        try:
+            rel = path.relative_to(root)
+            if path.is_symlink() or not path.is_file():
+                continue
+            if any(part in ignored_dirs for part in rel.parts):
+                continue
+            if path.name in ignored_names or path.name.startswith(".env.") or path.suffix.lower() in secret_suffixes:
+                continue
+            found.append(rel.as_posix())
+        except (OSError, ValueError):
+            continue
+    return "\\n".join(sorted(found)) or "(empty)"
 REG, SCHEMAS = {}, []
 
 def tool(name, desc, params):
