@@ -1222,46 +1222,6 @@ def ops_overview():
                       "github_sign_in_required": True}
     }
 
-@app.post("/__internal/sandbox-smoke")
-async def sandbox_smoke(request: Request):
-    """Temporary fixed-command probe; disabled unless a preview-only token is configured."""
-    expected = os.getenv("SANDBOX_SMOKE_TOKEN", "").strip()
-    supplied = request.headers.get("x-forge-sandbox-smoke", "")
-    if not expected or not hmac.compare_digest(supplied, expected):
-        return JSONResponse({"error": "not_found"}, status_code=404)
-    try:
-        payload = await request.json()
-    except Exception:
-        return JSONResponse({"error": "invalid_json"}, status_code=400)
-    mode = payload.get("mode") if isinstance(payload, dict) else None
-    if mode not in {"write", "read"}:
-        return JSONResponse({"error": "mode must be write or read"}, status_code=400)
-    workspace_root = Path(os.getenv("WORKSPACE", "/tmp/forge-workspace")).resolve()
-    probe_dir = workspace_root / ".forge-smoke"
-    probe_dir.mkdir(parents=True, exist_ok=True)
-    if mode == "write":
-        command = "printf 'forge-remote-persistence-ok\\n' > /tmp/.forge-sandbox-persistence-marker && printf 'FORGE_SANDBOX_WRITE_OK\\n'"
-        expected_output = "FORGE_SANDBOX_WRITE_OK"
-    else:
-        command = "test \"$(cat /tmp/.forge-sandbox-persistence-marker)\" = 'forge-remote-persistence-ok' && printf 'FORGE_SANDBOX_READ_OK\\n'"
-        expected_output = "FORGE_SANDBOX_READ_OK"
-    try:
-        import sandbox_core
-        output = await asyncio.to_thread(
-            sandbox_core.execute, command, workspace_root, probe_dir, 60
-        )
-        ok = expected_output in output
-        return JSONResponse({
-            "ok": ok,
-            "mode": mode,
-            "provider": "vercel",
-            "marker_verified": ok,
-            "message": "remote sandbox command succeeded" if ok else "remote sandbox command failed",
-        }, status_code=200 if ok else 502)
-    except Exception as exc:
-        return JSONResponse({"ok": False, "mode": mode, "error": type(exc).__name__}, status_code=502)
-
-
 @app.get("/readyz")
 def readyz():
     """Public, low-detail readiness probe for deployment verification."""
