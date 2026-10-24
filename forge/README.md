@@ -20,16 +20,16 @@ Open http://localhost:8000. Use Python 3.12 rather than Python 3.14 for this pin
 
 1. Push this repository to GitHub.
 2. In Render, choose **New → Blueprint** and select this repository; Render will read the root `render.yaml`.
-3. Set `XKIRO_API_KEY` and `APP_PASSWORD`. For interactive GitHub sign-in, register a GitHub OAuth App once and set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_REDIRECT_URI` (`https://YOUR-SERVICE.onrender.com/auth/github/callback`), and a stable `OAUTH_ENCRYPTION_SECRET` in Render Environment. Users then click **Connect GitHub**; they do not paste a personal GitHub token. The callback URL must exactly match the OAuth App setting. Keep secrets in Render's Environment dashboard, not in Git.
+3. Set `XKIRO_API_KEY`, `FORGE_SESSION_SECRET`, `OAUTH_ENCRYPTION_SECRET`, `GITHUB_ALLOWED_USERS`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `GITHUB_REDIRECT_URI` in the deployment environment. On Vercel, use `https://YOUR-VERCEL-DOMAIN/auth/github/callback` as the callback URL. Register that exact URL in your GitHub OAuth App. Users then click **Connect GitHub**; they do not paste a personal GitHub token. The callback URL must exactly match the OAuth App setting. Keep secrets in Render's Environment dashboard, not in Git.
 4. Deploy. Render health checks use `/healthz`.
 
-The Blueprint runs the service from `forge/` with `python -m pip install -r requirements.txt` and `uvicorn app:app --host 0.0.0.0 --port $PORT`.
+For Vercel, set the project Root Directory to `forge`, use Python 3.12, and keep the callback URL synchronized with the GitHub OAuth App.
 
 **Persistence note:** Render's default filesystem is ephemeral. Chat sessions, provider settings saved in `data/`, MCP configs and workspace files may be lost on redeploy/restart unless you attach a persistent disk and configure paths accordingly. This app currently uses local JSON files, so a persistent disk is recommended for retaining its state. Do not store production secrets in the repository.
 
 ## Features and configuration
 
-- Models: Settings → Models supports OpenAI-compatible providers, Anthropic, xKiro and custom endpoints. Keys added in the UI are stored in `data/providers.json` as plain text, so keep the instance private and use `APP_PASSWORD`.
+- Models: Settings → Models supports OpenAI-compatible providers, Anthropic, xKiro and custom endpoints. Keys added in the UI are stored in `data/providers.json` as plain text, so only approved GitHub accounts should access the instance.
 - MCP: Settings → paste an `{"mcpServers": {...}}` config (stdio or HTTP/SSE). Stdio MCP servers need their runtimes installed.
 - Safety: shell, git, PR, deploy and MCP tools ask for approval unless Auto-approve is enabled.
 - Sandbox: each chat gets its own `workspace/<chat-id>` folder; code can be created, run and downloaded as a ZIP. `SANDBOX_DOCKER=1` enables optional Docker isolation when Docker is available.
