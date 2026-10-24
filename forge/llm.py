@@ -9,17 +9,23 @@ PRESETS = {
     "groq": ("https://api.groq.com/openai/v1", "openai"), "openrouter": ("https://openrouter.ai/api/v1", "openai"),
     "deepseek": ("https://api.deepseek.com/v1", "openai"), "mistral": ("https://api.mistral.ai/v1", "openai"),
     "xai": ("https://api.x.ai/v1", "openai"), "together": ("https://api.together.xyz/v1", "openai"),
-    "ollama": ("http://localhost:11434/v1", "openai"), "kiro": (os.getenv("KIRO_BASE_URL", ""), "openai"),
+    "ollama": ("http://localhost:11434/v1", "openai"),
+    "xkiro": (os.getenv("XKIRO_BASE_URL", "https://api.xkiro.com/v1"), "openai"),
+    "kiro": (os.getenv("KIRO_BASE_URL", os.getenv("XKIRO_BASE_URL", "https://api.xkiro.com/v1")), "openai"),
     "custom": ("", "openai"),
 }
 
 def load():
     if PF.exists(): return json.loads(PF.read_text())
     d = {"active": None, "providers": []}
-    if os.getenv("KIRO_API_KEY"):
-        d["providers"].append({"id": "kiro", "name": "kiro", "base_url": os.getenv("KIRO_BASE_URL", ""), "kind": "openai",
-                               "key": os.environ["KIRO_API_KEY"], "model": os.getenv("KIRO_MODEL", "")})
-        d["active"] = "kiro"
+    # Prefer the current xKiro variable names; retain legacy KIRO_* compatibility.
+    xkiro_key = os.getenv("XKIRO_API_KEY") or os.getenv("KIRO_API_KEY")
+    if xkiro_key:
+        d["providers"].append({"id": "xkiro", "name": "xKiro",
+                               "base_url": os.getenv("XKIRO_BASE_URL") or os.getenv("KIRO_BASE_URL") or "https://api.xkiro.com/v1",
+                               "kind": "openai", "key": xkiro_key,
+                               "model": os.getenv("XKIRO_MODEL") or os.getenv("KIRO_MODEL") or "mistralai/devstral-medium"})
+        d["active"] = "xkiro"
     return d
 
 def save(d): PF.parent.mkdir(exist_ok=True); PF.write_text(json.dumps(d, indent=1))
