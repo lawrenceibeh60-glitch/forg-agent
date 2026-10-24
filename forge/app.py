@@ -679,7 +679,7 @@ def sandbox_test():
         ok = "FORGE_SANDBOX_OK" in result
         if not ok:
             return JSONResponse({"ok": False, "error": result[-1200:]}, status_code=502)
-        return {"ok": True, "message": "Render sandbox provisioned, executed a test command, and terminated successfully.", "result": result[-500:]}
+        return {"ok": True, "message": "Vercel Sandbox provisioned, executed a test command, and terminated successfully.", "result": result[-500:]}
     except Exception as exc:
         return JSONResponse({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:500]}"}, status_code=502)
 
