@@ -138,12 +138,13 @@ def python_eval(code): return run("python3 -c " + __import__("shlex").quote(code
 @tool("ipython_eval", "Run a Python snippet in IPython inside the isolated sandbox when available; otherwise clearly report and use standard Python.", {"code": ("string", "Python snippet")})
 def ipython_eval(code):
     encoded = base64.b64encode(code.encode("utf-8")).decode("ascii")
-    python_payload = 'import base64; exec(compile(base64.b64decode("' + encoded + '"), "<forge-ipython>", "exec"))'
+    python_payload = "import base64; exec(compile(base64.b64decode('" + encoded + "'), '<forge-ipython>', 'exec'))"
+    quote = __import__("shlex").quote
     command = (
         "if command -v ipython >/dev/null 2>&1; then "
-        + "ipython -c '" + python_payload + "'; "
+        + "ipython -c " + quote(python_payload) + "; "
         + "else printf '%s\\n' 'IPython is not installed in this sandbox image; executing the snippet with standard Python instead.'; "
-        + "python3 -c '" + python_payload + "'; fi"
+        + "python3 -c " + quote(python_payload) + "; fi"
     )
     return run(command, ".", 120)
 
