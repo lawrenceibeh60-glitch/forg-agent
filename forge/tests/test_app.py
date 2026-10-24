@@ -24,3 +24,12 @@ def test_status_endpoint_reports_configured_integrations_as_booleans():
     body = response.json()
     assert set(body) == {"xkiro", "github", "render"}
     assert all(isinstance(value, bool) for value in body.values())
+
+
+def test_connections_endpoint_has_github_and_render_states():
+    response = client.get("/api/connections")
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"github", "render"}
+    assert isinstance(body["github"]["connected"], bool)
+    assert isinstance(body["render"]["connected"], bool)
