@@ -664,7 +664,7 @@ def sandbox_test():
         workspace_root = Path(os.getenv("WORKSPACE", "/tmp/forge-workspace")).resolve()
         workspace_root.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".forge-sandbox-test-", dir=workspace_root) as tmp:
-            result = tools.run_command("printf FORGE_SANDBOX_OK", Path(tmp), timeout=45)
+            result = tools.sh("printf FORGE_SANDBOX_OK", cwd=Path(tmp), timeout=45)
         ok = "FORGE_SANDBOX_OK" in result
         if not ok:
             return JSONResponse({"ok": False, "error": result[-1200:]}, status_code=502)
