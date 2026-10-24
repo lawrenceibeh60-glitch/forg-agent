@@ -272,6 +272,7 @@ async def chat(req: Req):
             repeated_action_blocks = 0
             repeated_failure_blocked = False
             repeated_failure_reason = ""
+            repeated_failure_notified = False
             execution_tools = {"run_command", "run_tests", "lint", "python_eval", "node_eval"}
             max_turns = max(60, min(160, int(os.getenv("FORGE_MAX_AGENT_TURNS", "120"))))
             for turn in range(1, max_turns + 1):
@@ -354,9 +355,9 @@ async def chat(req: Req):
                     prior_failure = action_failures.get(action_key)
                     try:
                         if sandbox_blocked and name in execution_tools:
-                            out = ("Execution circuit breaker is OPEN for this task. A sandbox infrastructure/configuration failure was already confirmed: "
+                            out = ("This execution backend is unavailable for this task because of a confirmed infrastructure/configuration failure: "
                                    + sandbox_block_reason[:500]
-                                   + ". This command was NOT run. Do not retry or switch execution tools; use static inspection and report the blocker.")
+                                   + ". This command was NOT run. Do not retry this same backend. Continue with non-execution work, or use a genuinely independent backend only if it is already configured and safe.")
                         elif prior_failure:
                             repeated_action_blocks += 1
                             out = ("REPEATED ACTION BLOCKED: this exact tool and arguments already failed. Previous result: "
@@ -407,30 +408,20 @@ async def chat(req: Req):
                     if name != "update_plan":
                         checkpoint_fields["current_step"] = f"Reviewed result from {name}"
                     tasks.update(task_id, **checkpoint_fields)
-                if repeated_failure_blocked:
+                if repeated_failure_blocked and not repeated_failure_notified:
+                    # Stop repeating the failing action, but keep the overall agent task alive.
                     msgs.append({"role": "user", "content":
-                        "[REPEATED FAILURE CIRCUIT BREAKER] Forge attempted the same failing action again after receiving the previous result. "
-                        "Stop command execution for this task. Do not retry the same command or disguise it with cosmetic argument changes. "
-                        "Give a concise causal diagnosis from available evidence, state which independent checks were performed, and identify the missing prerequisite or next manual fix. "
-                        "Do not claim success.\nRepeated failure evidence: " + repeated_failure_reason[:1200]})
-                    final_text = ""
-                    try:
-                        async for kind, value in llm.stream(msgs, [], purpose="review"):
-                            if kind == "text":
-                                final_text += value
-                                yield sse("delta", {"text": value})
-                    except Exception:
-                        final_text = "I stopped repeated execution attempts to avoid wasting tokens. The last repeated failure was: " + repeated_failure_reason[:700]
-                        yield sse("delta", {"text": final_text})
-                    if final_text:
-                        msgs.append({"role": "assistant", "content": final_text})
-                    task_status = "blocked"
-                    tasks.update(task_id, status="blocked", current_step="Stopped after repeated identical action failures",
-                        last_error=repeated_failure_reason[:12000],
-                        checkpoint=orchestrator.checkpoint("repeated_failure_circuit_open", turn=turn,
+                        "[REPEATED ACTION DISABLED — CONTINUE THE TASK] The same action failed repeatedly. "
+                        "Do not call that exact action again or disguise it with cosmetic argument changes. This disables only that failing action, not the task. "
+                        "Continue with independent diagnosis, source/configuration inspection, edits, documentation, GitHub operations, and other useful work. "
+                        "Use a genuinely different approach if one is available. State the missing prerequisite only if no safe independent progress remains. Do not claim success.\nRepeated failure evidence: "
+                        + repeated_failure_reason[:1200]})
+                    repeated_failure_notified = True
+                    tasks.update(task_id, current_step="Avoiding repeated failure; continuing independent work",
+                        checkpoint=orchestrator.checkpoint("repeated_action_disabled", turn=turn,
                             reason=repeated_failure_reason[:1000], repeated_action_blocks=repeated_action_blocks,
-                            failed_action_count=len(action_failures), next_action="Use independent diagnosis or fix the recorded precondition"))
-                    break
+                            failed_action_count=len(action_failures), next_action="Continue with independent work"))
+                    # Deliberately continue instead of finalizing as blocked.
                 if sandbox_blocked and not sandbox_recovery_notified:
                     # A failed executor disables only unsafe retries, never unrelated work.
                     yield sse("progress", {"text": "One execution route failed; continuing with other available work and static verification."})
