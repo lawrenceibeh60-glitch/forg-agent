@@ -1,10 +1,24 @@
 import io
+import time
 import zipfile
+import pytest
 from fastapi.testclient import TestClient
 
 import app
 
 client = TestClient(app.app)
+
+
+@pytest.fixture(autouse=True)
+def authenticated_test_client(monkeypatch):
+    """Exercise protected routes with a signed test session, not an auth bypass."""
+    monkeypatch.setattr(app, "SESSION_SECRET", "forge-test-session-secret")
+    client.cookies.set(
+        "forge_session",
+        app._session_value("test-user", "123", int(time.time()) + 3600),
+    )
+    yield
+    client.cookies.delete("forge_session")
 
 
 def test_health_check():
