@@ -1,23 +1,29 @@
-"""Live preview sessions backed by isolated, temporary Render sandboxes.
+"""Live preview sessions on Vercel Sandbox with exposed HTTPS routes.
 
-Preview URLs are public HTTPS links protected only by their random Cloudflare
-Quick Tunnel hostname. Never stage credentials or .env files into a preview.
+Each preview runs in its own isolated Linux VM. Vercel's port routing replaces
+Render sandboxes and Cloudflare Quick Tunnels; preview links are public to anyone
+who has the URL and expire when the sandbox is destroyed or times out.
 """
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import os
 import re
 import shlex
 import time
-import tempfile
 from pathlib import Path
 from typing import Any
 
-import render_sandbox
+import vercel_sandbox
 
-STATE_PATH = Path(os.getenv("FORGE_PREVIEW_STATE", "data/previews.json"))
-MAX_PREVIEW_SECONDS = 3600
+STATE_PATH = Path(os.getenv("FORGE_PREVIEW_STATE", "/tmp/forge-data/previews.json"))
+MAX_PREVIEW_SECONDS = min(3600, max(300, int(os.getenv("VERCEL_PREVIEW_TIMEOUT", "3600"))))
+SKIP_DIRS = {".git", ".forge", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache",
+             ".ssh", ".aws", ".azure", ".kube", ".gnupg", ".config", "dist", "build"}
+BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico", ".pdf", ".zip", ".gz",
+                   ".tar", ".mp4", ".mp3", ".wav", ".woff", ".woff2", ".ttf", ".otf", ".so", ".dll"}
 
 
 def detect_preview(root: Path, port: int | None = None) -> dict[str, Any]:
@@ -39,7 +45,7 @@ def detect_preview(root: Path, port: int | None = None) -> dict[str, Any]:
                     "command": f"npm start -- --host 0.0.0.0 --port {chosen_port}"}
     if (root / "index.html").is_file():
         return {"kind": "static", "port": chosen_port, "install": "",
-                "command": f"python -m http.server {chosen_port} --bind 0.0.0.0"}
+                "command": f"python3 -m http.server {chosen_port} --bind 0.0.0.0"}
     requirements = root / "requirements.txt"
     python_files = [name for name in ("main.py", "app.py", "server.py", "wsgi.py")
                     if (root / name).is_file()]
@@ -51,17 +57,17 @@ def detect_preview(root: Path, port: int | None = None) -> dict[str, Any]:
         module = Path(name).stem
         if "fastapi(" in source or "fastapi " in source or "from fastapi" in source:
             return {"kind": "asgi", "port": chosen_port,
-                    "install": "python -m pip install -r requirements.txt" if requirements.is_file() else "",
-                    "command": f"python -m uvicorn {module}:app --host 0.0.0.0 --port {chosen_port}"}
+                    "install": "python3 -m pip install -r requirements.txt" if requirements.is_file() else "",
+                    "command": f"python3 -m uvicorn {module}:app --host 0.0.0.0 --port {chosen_port}"}
         if "flask(" in source or "from flask" in source or "import flask" in source:
             return {"kind": "flask", "port": chosen_port,
-                    "install": "python -m pip install -r requirements.txt" if requirements.is_file() else "",
-                    "command": f"python -m flask --app {module} run --host 0.0.0.0 --port {chosen_port}"}
+                    "install": "python3 -m pip install -r requirements.txt" if requirements.is_file() else "",
+                    "command": f"python3 -m flask --app {module} run --host 0.0.0.0 --port {chosen_port}"}
     if requirements.is_file() and (root / "main.py").is_file():
         return {"kind": "python", "port": chosen_port,
-                "install": "python -m pip install -r requirements.txt",
-                "command": f"python main.py"}
-    raise ValueError("I couldn't identify a web entry point. Supply a start command and port, for example 'python -m uvicorn main:app --host 0.0.0.0 --port 8000'.")
+                "install": "python3 -m pip install -r requirements.txt",
+                "command": "python3 main.py"}
+    raise ValueError("I couldn't identify a web entry point. Supply a start command and port, for example 'python3 -m uvicorn main:app --host 0.0.0.0 --port 8000'.")
 
 
 def _state() -> dict[str, dict[str, Any]]:
@@ -79,26 +85,122 @@ def _save(data: dict[str, dict[str, Any]]) -> None:
     tmp.replace(STATE_PATH)
 
 
-def _events(api, sandbox_id: str, command: str, timeout: int = 180) -> tuple[str, int | None]:
-    output: list[str] = []
-    exit_code = None
-    for event in api.exec(sandbox_id, command):
-        if hasattr(event, "exit_code"):
-            exit_code = event.exit_code
-        elif getattr(event, "data", ""):
-            output.append(str(event.data))
-    return "".join(output).strip()[-6000:], exit_code
+def _sandbox_name(session: str) -> str:
+    return "forge-preview-" + hashlib.sha256(session.encode("utf-8")).hexdigest()[:24]
+
+
+def _safe_stage_path(path: Path) -> bool:
+    rel = path
+    if vercel_sandbox._secret_path(rel) or any(part in SKIP_DIRS for part in rel.parts):
+        return False
+    if path.suffix.lower() in vercel_sandbox.SECRET_SUFFIXES:
+        return False
+    return True
+
+
+async def _write_workspace(box, project: Path) -> tuple[int, int]:
+    count, total = 0, 0
+    await box.run_process("mkdir", ["-p", "/workspace"], capture_output=True, check=True)
+    # Start clean while preserving the sandbox home and system tools.
+    await box.run_process("bash", ["-lc", "find /workspace -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +"],
+                          capture_output=True, check=True)
+    for path in project.rglob("*"):
+        rel = path.relative_to(project)
+        if path.is_symlink() or not path.is_file() or not _safe_stage_path(rel):
+            continue
+        try:
+            data = path.read_bytes()
+        except OSError:
+            continue
+        total += len(data)
+        if total > int(os.getenv("VERCEL_PREVIEW_MAX_BYTES", str(100 * 1024 * 1024))):
+            raise RuntimeError("Project exceeds the 100 MB preview staging limit.")
+        remote = "/workspace/" + rel.as_posix()
+        await box.run_process("mkdir", ["-p", str(Path(remote).parent)], capture_output=True, check=True)
+        await box.fs.write_bytes(remote, data)
+        count += 1
+        if count > int(os.getenv("VERCEL_PREVIEW_MAX_FILES", "5000")):
+            raise RuntimeError("Project contains too many files for preview staging.")
+    return count, total
+
+
+async def _start(session: str, root: Path, project: Path, start_command: str,
+                 deps_command: str, port: int) -> tuple[str, str, int, int]:
+    from vercel import sandbox
+    from vercel.sandbox import NetworkPolicy
+
+    name = _sandbox_name(session)
+    region = os.getenv("VERCEL_SANDBOX_REGION", "bom1").strip() or "bom1"
+    image = os.getenv("VERCEL_SANDBOX_IMAGE", "").strip() or None
+    box = None
+    try:
+        try:
+            box = await sandbox.get_sandbox(name=name)
+            # A prior preview for this session may have left old processes behind.
+            await box.run_process("bash", ["-lc", "pkill -f 'vite|next|uvicorn|flask|http.server' 2>/dev/null || true"],
+                                  capture_output=True, check=False, timeout=10)
+        except Exception:
+            box = await sandbox.create_sandbox(
+                name=name, image=image, ports=[port],
+                execution_time_limit=MAX_PREVIEW_SECONDS, persistent=True,
+                network_policy=NetworkPolicy.allow_all(), region=region,
+                tags={"app": "forge-agent", "purpose": "live-preview"},
+            )
+        staged_count, staged_bytes = await _write_workspace(box, project)
+        cwd = "/workspace"
+        if deps_command:
+            result = await box.run_process("bash", ["-lc", "cd /workspace && " + deps_command],
+                                           capture_output=True, check=False, timeout=min(600, MAX_PREVIEW_SECONDS))
+            if getattr(result, "exit_code", 1) != 0:
+                detail = ((getattr(result, "stdout", "") or "") + (getattr(result, "stderr", "") or ""))[-2500:]
+                raise RuntimeError("Dependency install failed: " + detail)
+        launch = "cd " + shlex.quote(cwd) + " && exec " + start_command
+        result = await box.run_process(
+            "bash", ["-lc", "nohup bash -lc " + shlex.quote(launch) +
+                     " >/tmp/forge-preview-app.log 2>&1 </dev/null & echo $! >/tmp/forge-preview-app.pid"],
+            capture_output=True, check=False, timeout=30,
+        )
+        if getattr(result, "exit_code", 1) != 0:
+            raise RuntimeError("Could not launch preview server: " + str(getattr(result, "stderr", ""))[-1500:])
+        ready = False
+        for _ in range(30):
+            probe = await box.run_process("bash", ["-lc", f"curl -fsS --max-time 2 http://127.0.0.1:{port}/ >/dev/null"],
+                                          capture_output=True, check=False, timeout=5)
+            if getattr(probe, "exit_code", 1) == 0:
+                ready = True
+                break
+            await asyncio.sleep(1)
+        if not ready:
+            logs = await box.run_process("bash", ["-lc", "tail -n 45 /tmp/forge-preview-app.log 2>/dev/null || true"],
+                                         capture_output=True, check=False, timeout=10)
+            raise RuntimeError("App did not become ready on port " + str(port) + ". Logs: " +
+                               ((getattr(logs, "stdout", "") or "") + (getattr(logs, "stderr", "") or ""))[-2500:])
+        route_url = ""
+        for route in getattr(box, "routes", []) or []:
+            route_port = getattr(route, "port", None)
+            if str(route_port) == str(port):
+                route_url = str(getattr(route, "url", "") or "")
+                break
+        if not route_url:
+            try:
+                route_url = str(box.domain(port))
+            except Exception:
+                route_url = ""
+        if not route_url.startswith("https://"):
+            raise RuntimeError("Vercel did not return an HTTPS route for port " + str(port))
+        return name, route_url, staged_count, staged_bytes
+    except Exception:
+        if box is not None:
+            try:
+                await box.destroy()
+            except Exception:
+                pass
+        raise
 
 
 def start_preview(session: str, root: Path, path: str = ".", command: str = "",
                   port: int = 5173, install_command: str = "") -> str:
-    """Create a temporary isolated sandbox and return a public HTTPS preview link."""
-    if not render_sandbox.configured():
-        return "Preview unavailable: Render sandbox is not configured. Check the sandbox status endpoint; the preview feature cannot bypass missing sandbox credentials."
-    try:
-        from render import Render
-    except ImportError:
-        return "Preview unavailable: Render SDK is missing. Install render>=1.4 and redeploy."
+    """Create an isolated Vercel Sandbox and return its exposed HTTPS preview URL."""
     root = root.resolve()
     project = (root / path).resolve()
     if project != root and root not in project.parents:
@@ -119,123 +221,41 @@ def start_preview(session: str, root: Path, path: str = ".", command: str = "",
     deps_command = install_command.strip() or str(selected.get("install") or "")
     if len(start_command) > 1500 or len(deps_command) > 1500:
         return "Preview failed: start/install command is too long."
-    client = Render(token=os.getenv("RENDER_API_KEY"), owner_id=os.getenv("RENDER_WORKSPACE_ID"))
-    api = client.experimental.sandboxes
-    sandbox = None
-    records = _state()
-    old = records.pop(session, None)
-    if old and old.get("sandbox_id"):
-        try:
-            api.terminate(old["sandbox_id"])
-        except Exception:
-            pass
-        _save(records)
     try:
-        # Previews need outbound network access for package installation and the
-        # temporary HTTPS tunnel. They remain isolated from the Forge service.
-        sandbox = api.create(timeout_seconds=MAX_PREVIEW_SECONDS, network_policy="allow-all")
-        deadline = time.monotonic() + min(90, max(20, int(os.getenv("SANDBOX_START_TIMEOUT", "60"))))
-        while getattr(sandbox, "status", "") != "running":
-            if getattr(sandbox, "status", "") in {"failed", "errored", "terminated", "suspended"}:
-                raise RuntimeError("sandbox entered status " + str(sandbox.status))
-            if time.monotonic() >= deadline:
-                raise TimeoutError("sandbox startup timed out")
-            time.sleep(2)
-            sandbox = api.from_id(sandbox.id)
-        with tempfile.TemporaryDirectory(prefix="forge-preview-") as stage:
-            stage_root = Path(stage) / "workspace"
-            stage_root.mkdir()
-            render_sandbox._stage(root, stage_root)
-            api.copy_to(sandbox.id, str(stage_root), "/workspace")
-        cwd = "/workspace" if path == "." else "/workspace/" + project.relative_to(root).as_posix()
-        if deps_command:
-            output, code = _events(api, sandbox.id, "cd " + shlex.quote(cwd) + " && " + deps_command, 360)
-            if code not in (0, None):
-                raise RuntimeError("dependency install failed (exit " + str(code) + "): " + output[-1800:])
-        # Install the official Cloudflare tunnel binary only inside the disposable
-        # sandbox; never install or execute project code on the Forge web service.
-        tunnel_setup = (
-            'if command -v cloudflared >/dev/null 2>&1; then CF=$(command -v cloudflared); '
-            'else CF=/tmp/cloudflared; '
-            'curl -fsSL --max-time 90 https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o "$CF" '
-            '&& chmod 700 "$CF"; fi'
-        )
-        output, code = _events(api, sandbox.id, tunnel_setup, 120)
-        if code not in (0, None):
-            raise RuntimeError("could not prepare HTTPS preview tunnel: " + output[-1200:])
-        shell = "cd " + shlex.quote(cwd) + " && exec " + start_command
-        app_cmd = "nohup bash -lc " + shlex.quote(shell) + " >/tmp/forge-app.log 2>&1 </dev/null & echo $! >/tmp/forge-app.pid"
-        output, code = _events(api, sandbox.id, app_cmd, 30)
-        if code not in (0, None):
-            raise RuntimeError("could not start the project server: " + output[-1200:])
-        ready = False
-        for _ in range(20):
-            probe_code = None
-            for event in api.exec(sandbox.id, "curl -sS --max-time 2 -o /dev/null http://127.0.0.1:" + str(selected_port)):
-                if hasattr(event, "exit_code"):
-                    probe_code = event.exit_code
-            if probe_code == 0:
-                ready = True
-                break
-            time.sleep(1)
-        if not ready:
-            logs, _ = _events(api, sandbox.id, "tail -n 30 /tmp/forge-app.log", 10)
-            raise RuntimeError("app did not listen on port " + str(selected_port) + ". App log: " + logs[-1600:])
-        tunnel_cmd = (
-            'CF=$(command -v cloudflared || echo /tmp/cloudflared); '
-            'nohup "$CF" tunnel --url http://127.0.0.1:' + str(selected_port) +
-            ' --no-autoupdate >/tmp/forge-tunnel.log 2>&1 </dev/null & echo $! >/tmp/forge-tunnel.pid'
-        )
-        output, code = _events(api, sandbox.id, tunnel_cmd, 30)
-        if code not in (0, None):
-            raise RuntimeError("could not start HTTPS preview tunnel: " + output[-1200:])
-        url = ""
-        for _ in range(24):
-            time.sleep(2)
-            output, _ = _events(api, sandbox.id,
-                "grep -Eo 'https://[a-z0-9-]+\\.trycloudflare\\.com' /tmp/forge-tunnel.log | head -n 1", 10)
-            match = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", output)
-            if match:
-                url = match.group(0)
-                break
-        if not url:
-            logs, _ = _events(api, sandbox.id, "tail -n 35 /tmp/forge-tunnel.log; echo '--- app log ---'; tail -n 35 /tmp/forge-app.log", 15)
-            raise RuntimeError("the app/tunnel did not become ready. Recent logs: " + logs[-2200:])
-        records[session] = {"sandbox_id": sandbox.id, "url": url, "port": selected_port,
+        name, url, staged_count, staged_bytes = asyncio.run(
+            _start(session, root, project, start_command, deps_command, selected_port))
+        records = _state()
+        records[session] = {"sandbox_name": name, "url": url, "port": selected_port,
                             "kind": selected.get("kind", "custom"), "created_at": time.time(),
                             "expires_in_seconds": MAX_PREVIEW_SECONDS}
         _save(records)
         return (f"Live preview is ready: [Open preview]({url})\n\n"
-                f"Runtime: {selected.get('kind', 'custom')} · port {selected_port} · "
-                f"temporary sandbox (up to {MAX_PREVIEW_SECONDS // 60} minutes).\n"
-                "The link is public to anyone who has it; do not put secrets or private data in the preview. "
-                "The sandbox is isolated from Forge and will expire automatically.")
+                f"Runtime: {selected.get('kind', 'custom')} · Linux sandbox · port {selected_port} · "
+                f"{staged_count} files staged ({staged_bytes // 1024} KB) · expires in "
+                f"{MAX_PREVIEW_SECONDS // 60} minutes.\n"
+                "Vercel's exposed-port HTTPS routing is used directly; no Render service or tunnel is needed. "
+                "The link is public to anyone who has it; do not put secrets or private data in the preview.")
     except Exception as exc:
-        if sandbox is not None:
-            try:
-                api.terminate(sandbox.id)
-            except Exception:
-                pass
-        if sandbox is None:
-            detail = render_sandbox.creation_failure_diagnosis(exc, api)
-            return "Preview failed: " + detail
-        return "Preview failed: " + type(exc).__name__ + ": " + str(exc)[:1800]
+        return "Preview failed: " + type(exc).__name__ + ": " + str(exc)[:2500]
+
+
+async def _stop_named(name: str) -> None:
+    from vercel import sandbox
+    box = await sandbox.get_sandbox(name=name)
+    await box.destroy()
 
 
 def stop_preview(session: str) -> str:
-    """Stop and release the current preview sandbox for a chat session."""
+    """Destroy the active Vercel preview sandbox and release its resources."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", session or ""):
         return "Preview stop failed: invalid session id."
     records = _state()
-    record = records.get(session)
-    if not record:
-        return "No active preview is recorded for this chat session."
+    record = records.get(session) or {}
+    name = record.get("sandbox_name") or _sandbox_name(session)
     try:
-        from render import Render
-        client = Render(token=os.getenv("RENDER_API_KEY"), owner_id=os.getenv("RENDER_WORKSPACE_ID"))
-        client.experimental.sandboxes.terminate(record["sandbox_id"])
+        asyncio.run(_stop_named(name))
     except Exception as exc:
-        return "Could not stop preview sandbox: " + type(exc).__name__ + ": " + str(exc)[:500]
+        return "Could not stop preview sandbox: " + type(exc).__name__ + ": " + str(exc)[:600]
     records.pop(session, None)
     _save(records)
-    return "Preview stopped and sandbox released."
+    return "Preview stopped and the Vercel Sandbox was destroyed."
