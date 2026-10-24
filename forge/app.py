@@ -282,6 +282,11 @@ def status():
             "github": bool(saved.get("github", {}).get("access_token") or os.getenv("GITHUB_TOKEN")),
             "render": bool(os.getenv("RENDER_API_KEY")) or any(x.get("name") == "render" and x.get("connected") for x in mcp.status())}
 
+# Resolve assets relative to this module, not Render's process working directory.
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
 @app.get("/")
-def index(): return FileResponse("static/index.html")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+def index():
+    return FileResponse(STATIC_DIR / "index.html")
+
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
