@@ -306,6 +306,7 @@ async def chat(req: Req):
             sandbox_recovery_notified = False
             sandbox_failure_count = 0
             action_failures = {}
+            last_failure = {}
             repeated_action_blocks = 0
             repeated_failure_blocked = False
             repeated_failure_reason = ""
@@ -418,6 +419,12 @@ async def chat(req: Req):
                     failed_result = agent_runtime.action_failed(str(out)) or agent_runtime.sandbox_blocker(str(out))
                     if failed_result and not prior_failure:
                         action_failures[action_key] = str(out)[:1500]
+                        last_failure = {
+                            "class": failure_class,
+                            "tool": name,
+                            "evidence": str(out)[:900],
+                            "recovery_policy_applied": True,
+                        }
                     if name in execution_tools and agent_runtime.sandbox_blocker(str(out)):
                         sandbox_failure_count += 1
                         sandbox_blocked = True
@@ -482,7 +489,7 @@ async def chat(req: Req):
                     # Continue the loop; do not break merely because one executor failed.
         except asyncio.CancelledError:
             task_status = "blocked"
-            tasks.update(task_id, status="blocked", last_error="The streaming request was interrupted; resume from the saved checkpoint.", current_step="Connection interrupted; checkpoint saved", checkpoint={"phase": "client_cancelled", "message_count": len(msgs), "turn": locals().get("turn", 0)})
+            tasks.update(task_id, status="blocked", last_error="The streaming request was interrupted; resume from the saved checkpoint.", current_step="Connection interrupted; checkpoint saved", checkpoint={"phase": "client_cancelled", "message_count": len(msgs), "turn": locals().get("turn", 0), "last_failure_class": last_failure.get("class", ""), "last_failure_tool": last_failure.get("tool", ""), "last_failure_evidence": last_failure.get("evidence", ""), "recovery_policy_applied": bool(last_failure.get("recovery_policy_applied"))})
             save(sid, msgs)
             raise
         except Exception as e:
@@ -503,7 +510,7 @@ async def chat(req: Req):
             except Exception:
                 pass
             task_status = "paused"
-            tasks.update(task_id, status="paused", current_step="Checkpoint saved; more work remains", last_error="The current execution window ended before completion. Resume from this checkpoint to continue.", checkpoint={"phase": "budget_exhausted", "turn": turn, "message_count": len(msgs), "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "resume_recommended": True})
+            tasks.update(task_id, status="paused", current_step="Checkpoint saved; more work remains", last_error="The current execution window ended before completion. Resume from this checkpoint to continue.", checkpoint={"phase": "budget_exhausted", "turn": turn, "message_count": len(msgs), "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "resume_recommended": True, "last_failure_class": last_failure.get("class", ""), "last_failure_tool": last_failure.get("tool", ""), "last_failure_evidence": last_failure.get("evidence", ""), "recovery_policy_applied": bool(last_failure.get("recovery_policy_applied"))})
         save(sid, msgs)
         if task_status == "completed":
             tasks.update(task_id, status="completed", current_step="Conversation saved", checkpoint={"phase": "saved", "message_count": len(msgs), "turn": locals().get("turn", 0), "tool_calls": sum(1 for m in msgs if m.get("role") == "tool")})
