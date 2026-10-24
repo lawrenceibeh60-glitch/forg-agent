@@ -211,7 +211,7 @@ def verification_unavailable(output: str) -> bool:
         "set app_password before using the sandbox test",
         "refusing to execute on the host",
     )
-    return any(marker in value for marker in markers)
+    return sandbox_blocker(value) or any(marker in value for marker in markers)
 
 
 def workspace_snapshot(root: str | Path, max_files: int = 90, max_manifest_chars: int = 1800) -> str:
@@ -285,3 +285,60 @@ def workspace_snapshot(root: str | Path, max_files: int = 90, max_manifest_chars
         + ("\nProject manifests and instructions:\n" + "\n\n".join(found_manifests) if found_manifests else "")
         + "\nThis snapshot is only an index. Read relevant source and tests, follow references, and verify assumptions before changing code."
     )[:16000]
+
+
+
+def sandbox_blocker(output: str) -> bool:
+    """Recognize sandbox infrastructure/configuration failures, not ordinary test failures."""
+    value = str(output or "").lower()
+    markers = (
+        "no isolated command runner is configured",
+        "render sandbox is not configured",
+        "render sandbox not configured",
+        "render sandbox sdk missing",
+        "the render python sdk is not installed",
+        "command execution is disabled by policy",
+        "shell disabled by policy",
+        "docker sandbox requested but docker is unavailable",
+        "refusing to execute on the host",
+        "sandbox workspace is outside workspace",
+        "sandbox provisioning failed",
+        "failed to provision sandbox",
+        "failed to create sandbox",
+        "unable to create sandbox",
+        "failed to start sandbox",
+        "sandbox failed to start",
+        "sandbox creation failed",
+        "sandbox execution unavailable",
+        "sandbox failed",
+        "sandbox error",
+        "render sandbox error",
+        "workspace not found",
+        "sandbox api returned http 401",
+        "sandbox api returned http 403",
+        "sandbox api returned http 404",
+        "render api returned http 401",
+        "render api returned http 403",
+        "render api returned http 404",
+        "workspace access is not available",
+        "workspace entitlement",
+        "sandbox network policy must be",
+        "required: sandbox_render=1",
+    )
+    return any(marker in value for marker in markers)
+
+
+def route_heads(task_text: str) -> list[str]:
+    """Return a deterministic set of specialist lenses for task intent."""
+    value = str(task_text or "").lower()
+    heads = ["router", "planner", "critic"]
+    mode = classify_task(value)
+    if mode == "engineering":
+        heads += ["analyst", "executor", "verifier"]
+    elif mode == "research":
+        heads += ["analyst", "verifier"]
+    else:
+        heads += ["analyst"]
+    if re.search(r"\b(sandbox|shell|execute|command|security|credential|permission)\b", value):
+        heads = ["router", "analyst", "executor", "verifier", "critic"]
+    return list(dict.fromkeys(heads))
