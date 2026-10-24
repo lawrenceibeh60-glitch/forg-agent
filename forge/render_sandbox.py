@@ -100,9 +100,9 @@ def run(command: str, cwd: Path, timeout: int = 120) -> str:
         stage_out = Path(tmp_out) / "workspace"
         stage_out.mkdir()
         try:
-            network_policy = os.getenv("SANDBOX_NETWORK_POLICY", "deny")
+            network_policy = os.getenv("SANDBOX_NETWORK_POLICY", "deny-all")
             if os.getenv("SANDBOX_NETWORK", "0") == "1":
-                network_policy = "allow"
+                network_policy = "allow-all"
             api = client.experimental.sandboxes
             sandbox = api.create(timeout_seconds=max(60, timeout + 30), network_policy=network_policy)
             deadline = time.monotonic() + min(90, int(os.getenv("SANDBOX_START_TIMEOUT", "60")))
