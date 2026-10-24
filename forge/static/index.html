@@ -78,8 +78,7 @@ details.tool[open] summary::after{transform:rotate(45deg)}
 details.tool summary span{color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 details.tool pre{margin:0;padding:10px 12px;border-top:1px solid var(--line);max-height:300px;overflow:auto;font:12px/1.5 'JetBrains Mono',monospace;white-space:pre-wrap;background:var(--code)}
 pre i{display:block;font-style:normal}.add{color:var(--add)}.del{color:var(--del)}.hunk{color:var(--acc)}
-.spin{width:11px;height:11px;border-radius:50%;border:2px solid var(--acc);border-top-color:transparent;animation:r .8s linear infinite;flex:none}
-@keyframes r{to{transform:rotate(360deg)}}.ok{color:var(--add)}
+.tool-state{font-size:11px;color:var(--mute);margin-left:auto;letter-spacing:.02em}.tool-state.ok{color:var(--add)}.ok{color:var(--add)}
 .ask{padding:10px 12px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center;font-family:Inter,sans-serif}
 .btn{border:1px solid var(--line);background:var(--card);border-radius:9px;padding:6px 14px;font-size:13.5px}.btn:hover{background:var(--side)}
 .btn.pri{background:var(--ink);color:var(--bg);border-color:var(--ink)}
@@ -98,7 +97,6 @@ dialog{padding:16px;max-height:90dvh;overflow:auto}
 dialog input,dialog select,dialog textarea{font-size:16px}
 #pills button{font-size:12px;padding:7px 10px}
 }
-@media(prefers-reduced-motion:reduce){.spin{animation:none}}
 .i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:middle}
 #pills button{display:flex;gap:7px;align-items:center}#go{display:grid;place-items:center}.icon{display:grid;place-items:center}.row .i{color:var(--mute)}
 </style></head><body>
@@ -181,11 +179,11 @@ if(d.type==='session')sid=d.id;
 else if(d.type==='progress'){setActivity(activityStage(d.text||''),activityDetail(d.text||''))}
 else if(d.type==='delta'){if(!cur){cur=document.createElement('div');bot.appendChild(cur);txt=''}txt+=d.text;md(cur,txt)}
 else if(d.type==='tool_call'){cur=null;logThink('Tool started',d.name);setActivity('Using '+d.name.replace(/^mcp__/,'').replace(/_/g,' '),'waiting for the result');const el=document.createElement('details');el.className='tool';
-el.innerHTML=`<summary>${ico(CAT[d.name]||(d.name.startsWith('mcp__')?'plug':'wrench'))}<i class="spin"></i><b>${esc(d.name)}</b><span>${esc(JSON.stringify(d.args)).slice(0,80)}</span></summary><pre>${esc(JSON.stringify(d.args,null,2))}</pre>`;bot.appendChild(el);tl[d.id]=el}
+el.innerHTML=`<summary>${ico(CAT[d.name]||(d.name.startsWith('mcp__')?'plug':'wrench'))}<b>${esc(d.name)}</b><span class="tool-state">running</span><span>${esc(JSON.stringify(d.args)).slice(0,80)}</span></summary><pre>${esc(JSON.stringify(d.args,null,2))}</pre>`;bot.appendChild(el);tl[d.id]=el}
 else if(d.type==='approval'){const el=tl[d.id];el.open=true;const b=document.createElement('div');b.className='ask';
 b.innerHTML=`<b style="flex:1;font-weight:500">Allow this action?</b><button class="btn pri">Allow</button><button class="btn">Deny</button>`;
 const[y,n]=b.querySelectorAll('button');y.onclick=()=>{post('/api/approve',{id:d.id,ok:true});b.remove()};n.onclick=()=>{post('/api/approve',{id:d.id,ok:false});b.remove()};el.appendChild(b)}
-else if(d.type==='tool_result'){const el=tl[d.id];if(el){const spin=el.querySelector('.spin');if(spin)spin.outerHTML=ico('check','ok');el.insertAdjacentHTML('beforeend',`<pre>${fmt(d.output)}</pre>`)}logThink('Tool result received',el?el.querySelector('summary b')?.textContent||'Action':'Action');setActivity('Reassessing','reading the result and choosing what changes next')}
+else if(d.type==='tool_result'){const el=tl[d.id];if(el){const state=el.querySelector('.tool-state');if(state){state.textContent='done';state.classList.add('ok')}el.insertAdjacentHTML('beforeend',`<pre>${fmt(d.output)}</pre>`)}logThink('Tool result received',el?el.querySelector('summary b')?.textContent||'Action':'Action');setActivity('Reassessing','reading the result and choosing what changes next')}
 else if(d.type==='done'){think.classList.add('finished');setActivity('Finished','review the result and verification notes below');}
 else if(d.type==='error'){think.classList.add('finished');setActivity('Needs attention',d.error||'see the error below');bot.insertAdjacentHTML('beforeend',`<p style="color:var(--del)">${esc(d.error)}</p>`)}
 feed.scrollTop=feed.scrollHeight}}}catch(x){if(x.name!=='AbortError')bot.insertAdjacentHTML('beforeend',`<p style="color:var(--del)">${esc(x.message||'Request failed')}</p>`)}

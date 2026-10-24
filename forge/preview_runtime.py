@@ -216,6 +216,9 @@ def start_preview(session: str, root: Path, path: str = ".", command: str = "",
                 api.terminate(sandbox.id)
             except Exception:
                 pass
+        if sandbox is None:
+            detail = render_sandbox.creation_failure_diagnosis(exc, api)
+            return "Preview failed: " + detail
         return "Preview failed: " + type(exc).__name__ + ": " + str(exc)[:1800]
 
 
