@@ -338,6 +338,77 @@ def sandbox_blocker(output: str) -> bool:
     return any(marker in value for marker in markers)
 
 
+def classify_failure(tool_name: str, output: str) -> str:
+    """Classify tool failures so recovery changes strategy instead of blindly retrying."""
+    value = str(output or "").strip().lower()
+    if not value:
+        return "unknown"
+    if sandbox_blocker(value) or verification_unavailable(value):
+        return "configuration_or_capability"
+    if any(token in value for token in (
+        "401 unauthorized", "http 401", "403 forbidden", "http 403",
+        "permission denied", "not authorized", "access denied",
+        "approval denied", "action was denied by the user",
+    )):
+        return "authorization"
+    if any(token in value for token in (
+        "timeout", "timed out", "connection reset", "connection refused",
+        "temporarily unavailable", "http 429", "rate limit", "http 500",
+        "http 502", "http 503", "http 504", "gateway timeout",
+    )):
+        return "transient_infrastructure"
+    if any(token in value for token in (
+        "traceback", "assertionerror", "syntaxerror", "modulenotfounderror",
+        "tests failed", "test failed", "build failed", "lint failed",
+        "failed with exit code", "[exit 1", "error:",
+    )):
+        return "task_or_code_failure"
+    if action_failed(value):
+        return "action_failure"
+    return "unknown"
+
+
+def recovery_instruction(failure_class: str, tool_name: str, output: str) -> str:
+    """Return an operational recovery rule without granting new permissions."""
+    evidence = str(output or "").strip().replace("\\n", " ")[:900]
+    rules = {
+        "configuration_or_capability": (
+            "Do not retry this backend or disguise the same call. Continue through independent "
+            "static inspection, edits, documentation, and checks that do not need this capability. "
+            "Name the exact missing configuration only if the remaining work truly depends on it."
+        ),
+        "authorization": (
+            "Respect the permission boundary. Do not bypass approval or switch tools to perform "
+            "the same denied external action. Continue unrelated safe work and request authorization "
+            "only if that action is essential."
+        ),
+        "transient_infrastructure": (
+            "Inspect the failure and preconditions first. At most one retry is appropriate, and only "
+            "after changing a relevant condition or confirming the failure is transient; otherwise "
+            "switch to independent work and preserve the evidence."
+        ),
+        "task_or_code_failure": (
+            "Treat this as a task defect, not a missing sandbox. Inspect the failing source and exact "
+            "output, identify a root-cause hypothesis, make a targeted repair, then rerun the narrowest "
+            "relevant check. Do not repeat the unchanged failing command."
+        ),
+        "action_failure": (
+            "Compare the exact arguments and result with prior attempts. Inspect preconditions, then "
+            "choose a materially different diagnostic or repair; do not repeat the same failed action."
+        ),
+        "unknown": (
+            "Do not assume success or blindly retry. Inspect the output and relevant state, identify "
+            "what evidence is missing, then choose a safe diagnostic that distinguishes likely causes."
+        ),
+    }
+    return (
+        f"[RECOVERY POLICY — {failure_class}] Tool: {tool_name}. "
+        + rules.get(failure_class, rules["unknown"])
+        + "\\nFailure evidence: " + evidence
+    )
+
+
+
 def route_heads(task_text: str) -> list[str]:
     """Return a deterministic set of specialist lenses for task intent."""
     value = str(task_text or "").lower()
