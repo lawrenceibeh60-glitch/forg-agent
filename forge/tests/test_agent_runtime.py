@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import agent_runtime
+import render_sandbox
 
 
 def schema(name, description=""):
@@ -87,3 +88,26 @@ def test_sandbox_blocker_does_not_mistake_normal_code_failure_for_infrastructure
 def test_route_heads_selects_security_lenses_for_sandbox_tasks():
     heads = agent_runtime.route_heads("Fix the command sandbox execution loop")
     assert {"router", "analyst", "executor", "verifier", "critic"} <= set(heads)
+
+
+def test_render_sandbox_not_found_error_explains_missing_workspace_group():
+    class MissingGroupAPI:
+        def list_groups(self):
+            return type("Groups", (), {"groups": []})()
+
+    error = type("ClientError", (Exception,), {})("create sandbox failed: not found")
+    message = render_sandbox.creation_failure_diagnosis(error, MissingGroupAPI())
+    assert "no sandbox group" in message.lower()
+    assert "did not repeat" in message.lower()
+    assert "RENDER_WORKSPACE_ID" in message
+
+
+def test_render_sandbox_not_found_error_does_not_claim_group_missing_when_visible():
+    class VisibleGroupAPI:
+        def list_groups(self):
+            return type("Groups", (), {"groups": [object()]})()
+
+    error = type("ClientError", (Exception,), {})("create sandbox failed: not found")
+    message = render_sandbox.creation_failure_diagnosis(error, VisibleGroupAPI())
+    assert "sandbox group is visible" in message.lower()
+    assert "api key" in message.lower()
