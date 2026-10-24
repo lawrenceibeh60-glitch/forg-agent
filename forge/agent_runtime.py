@@ -217,53 +217,71 @@ def verification_unavailable(output: str) -> bool:
 def workspace_snapshot(root: str | Path, max_files: int = 90, max_manifest_chars: int = 1800) -> str:
     """Create a bounded, secret-safe workspace brief for engineering requests."""
     base = Path(root).resolve()
+    limit = max(20, min(int(max_files), 500))
+    manifest_chars = max(300, min(int(max_manifest_chars), 5000))
     files: list[str] = []
     found_manifests: list[str] = []
     languages: dict[str, int] = {}
     total_bytes = 0
     try:
+        candidates = []
         for path in base.rglob("*"):
             try:
                 rel = path.relative_to(base)
-                if path.is_symlink() or any(part in SKIP_DIRS for part in rel.parts):
-                    continue
-                if not path.is_file():
+                if path.is_symlink() or not path.is_file() or any(part in SKIP_DIRS for part in rel.parts):
                     continue
                 if path.name in SECRET_NAMES or path.name.startswith(".env.") or path.suffix.lower() in SECRET_SUFFIXES:
                     continue
                 if path.stat().st_size > 1_000_000:
                     continue
-                name = rel.as_posix()
-                files.append(name)
-                total_bytes += path.stat().st_size
-                ext = path.suffix.lower() or "[no extension]"
-                languages[ext] = languages.get(ext, 0) + 1
-                if name in MANIFESTS or path.name in MANIFESTS:
-                    if len(found_manifests) < 8:
-                        try:
-                            raw = path.read_text(encoding="utf-8", errors="replace")
-                            raw = re.sub(
-                                r"""(?im)^([ \t]*["']?(?:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PRIVATE[_-]?KEY|CLIENT[_-]?SECRET)[A-Z0-9_]*|password|secret|token)["']?\s*[:=]\s*["']?)[^,\n}]+""",
-                                r"\1[REDACTED]",
-                                raw,
-                            )
-                            found_manifests.append(f"--- {name} ---\n{raw[:max_manifest_chars]}")
-                        except OSError:
-                            pass
-                if len(files) >= max_files:
-                    break
+                candidates.append(path)
             except OSError:
                 continue
+
+        def priority(path: Path):
+            rel = path.relative_to(base)
+            name = rel.as_posix()
+            if path.name in MANIFESTS or path.name in {"AGENTS.md", "CLAUDE.md", "FORGE.md"}:
+                tier = 0
+            elif len(rel.parts) <= 2:
+                tier = 1
+            elif any(part.lower() in {"test", "tests", "spec", "specs"} for part in rel.parts):
+                tier = 2
+            else:
+                tier = 3
+            return (tier, len(rel.parts), name)
+
+        candidates.sort(key=priority)
+        selected = candidates[:limit]
+        for path in selected:
+            name = path.relative_to(base).as_posix()
+            files.append(name)
+            try:
+                total_bytes += path.stat().st_size
+            except OSError:
+                pass
+            ext = path.suffix.lower() or "[no extension]"
+            languages[ext] = languages.get(ext, 0) + 1
+            if (path.name in MANIFESTS or path.name in {"AGENTS.md", "CLAUDE.md", "FORGE.md"}) and len(found_manifests) < 8:
+                try:
+                    raw = path.read_text(encoding="utf-8", errors="replace")
+                    raw = re.sub(
+                        r"""(?im)^([ \t]*["']?(?:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PRIVATE[_-]?KEY|CLIENT[_-]?SECRET)[A-Z0-9_]*|password|secret|token)["']?\s*[:=]\s*["']?)[^,\n}]+""",
+                        r"\1[REDACTED]",
+                        raw,
+                    )
+                    found_manifests.append(f"--- {name} ---\n{raw[:manifest_chars]}")
+                except OSError:
+                    pass
     except OSError:
         return "Workspace snapshot unavailable; inspect it with tools before editing."
-    files.sort()
     if not files:
         return "The active workspace is empty. Create the requested project here; do not assume files exist."
     return (
         f"Workspace root: {base}\nFiles indexed: {len(files)}"
-        + (" (file list bounded)" if len(files) >= max_files else "")
-        + f"\nApproximate file bytes: {total_bytes}\nFile types: {json.dumps(dict(sorted(languages.items(), key=lambda item: -item[1])[:14]))}"
-        + "\nRelevant file tree:\n" + "\n".join(files[:max_files])
-        + ("\nProject manifests and entry docs:\n" + "\n\n".join(found_manifests) if found_manifests else "")
-        + "\nThis snapshot is only an index. Read relevant source files, follow references, and verify assumptions before changing code."
+        + (" (file list bounded)" if len(candidates) > len(files) else "")
+        + f"\nApproximate bytes of indexed files: {total_bytes}\nFile types: {json.dumps(dict(sorted(languages.items(), key=lambda item: -item[1])[:14]))}"
+        + "\nRelevant file tree:\n" + "\n".join(files)
+        + ("\nProject manifests and instructions:\n" + "\n\n".join(found_manifests) if found_manifests else "")
+        + "\nThis snapshot is only an index. Read relevant source and tests, follow references, and verify assumptions before changing code."
     )[:16000]
