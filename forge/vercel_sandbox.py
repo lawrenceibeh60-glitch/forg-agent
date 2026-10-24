@@ -95,7 +95,13 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
         raise ValueError("sandbox workspace is outside WORKSPACE")
     relative_cwd = root.relative_to(active_root)
     staged, total = _stage_files(active_root)
-    limit = max(1, min(int(timeout), int(os.getenv("SANDBOX_COMMAND_TIMEOUT", "120"))))
+    try:
+        command_cap = int(os.getenv("SANDBOX_COMMAND_TIMEOUT", "900"))
+    except (TypeError, ValueError):
+        command_cap = 900
+    # Keep per-command execution bounded, but don't silently cut longer tool
+    # requests back to 120 seconds when the caller explicitly requested more.
+    limit = max(1, min(int(timeout), max(1, min(command_cap, 900))))
     region = os.getenv("VERCEL_SANDBOX_REGION", "bom1").strip() or "bom1"
     # One persistent, named Linux sandbox per workspace: package installs and
     # user-created files survive subsequent tool calls and snapshots.
