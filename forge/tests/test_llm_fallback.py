@@ -14,7 +14,7 @@ class ModelFallbackTests(unittest.IsolatedAsyncioTestCase):
         async def fake_openai(provider, messages, tools):
             seen.append(provider["id"])
             if provider["id"] == "primary":
-                raise RuntimeError("primary HTTP 503")
+                raise RuntimeError("primary HTTP 401")
             yield "text", "fallback answer"
             yield "message", {"role": "assistant", "content": "fallback answer"}
 
