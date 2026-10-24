@@ -138,7 +138,7 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
             box = await sandbox.get_sandbox(name=name)
             # A prior preview for this session may have left old processes behind.
             await box.run_process("bash", ["-lc", "if [ -f /tmp/forge-preview-app.pid ]; then kill $(cat /tmp/forge-preview-app.pid) 2>/dev/null || true; rm -f /tmp/forge-preview-app.pid; fi"],
-                                  capture_output=True, check=False, timeout=10)
+                                  capture_output=True, check=False)
         except Exception:
             box = await sandbox.create_sandbox(
                 name=name, image=image, ports=[port],
@@ -150,7 +150,7 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
         cwd = "/workspace"
         if deps_command:
             result = await box.run_process("bash", ["-lc", "cd /workspace && " + deps_command],
-                                           capture_output=True, check=False, timeout=min(600, MAX_PREVIEW_SECONDS))
+                                           capture_output=True, check=False)
             if getattr(result, "exit_code", 1) != 0:
                 detail = ((getattr(result, "stdout", "") or "") + (getattr(result, "stderr", "") or ""))[-2500:]
                 raise RuntimeError("Dependency install failed: " + detail)
@@ -158,21 +158,21 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
         result = await box.run_process(
             "bash", ["-lc", "nohup bash -lc " + shlex.quote(launch) +
                      " >/tmp/forge-preview-app.log 2>&1 </dev/null & echo $! >/tmp/forge-preview-app.pid"],
-            capture_output=True, check=False, timeout=30,
+            capture_output=True, check=False,
         )
         if getattr(result, "exit_code", 1) != 0:
             raise RuntimeError("Could not launch preview server: " + str(getattr(result, "stderr", ""))[-1500:])
         ready = False
         for _ in range(30):
             probe = await box.run_process("bash", ["-lc", f"curl -fsS --max-time 2 http://127.0.0.1:{port}/ >/dev/null"],
-                                          capture_output=True, check=False, timeout=5)
+                                          capture_output=True, check=False)
             if getattr(probe, "exit_code", 1) == 0:
                 ready = True
                 break
             await asyncio.sleep(1)
         if not ready:
             logs = await box.run_process("bash", ["-lc", "tail -n 45 /tmp/forge-preview-app.log 2>/dev/null || true"],
-                                         capture_output=True, check=False, timeout=10)
+                                         capture_output=True, check=False)
             raise RuntimeError("App did not become ready on port " + str(port) + ". Logs: " +
                                ((getattr(logs, "stdout", "") or "") + (getattr(logs, "stderr", "") or ""))[-2500:])
         route_url = ""
