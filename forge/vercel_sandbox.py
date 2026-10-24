@@ -94,7 +94,7 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
     box_name = "forge-workspace-" + identity
     network_enabled = os.getenv("SANDBOX_NETWORK", "0") == "1"
     network_policy = NetworkPolicy.allow_all() if network_enabled else NetworkPolicy.deny_all()
-    image = os.getenv("VERCEL_SANDBOX_IMAGE", "").strip() or None
+    image = os.getenv("VERCEL_SANDBOX_IMAGE", "").strip() or "vercel/sandbox/universal:latest"
     box = None
     try:
         try:
@@ -120,7 +120,7 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
         remote_cwd = Path("/workspace") if str(relative_cwd) == "." else Path("/workspace") / relative_cwd
         started = time.monotonic()
         result = await box.run_process(
-            "sh", ["-lc", command], cwd=str(remote_cwd),
+            "bash", ["-lc", command], cwd=str(remote_cwd),
             capture_output=True, check=False, timeout=limit,
         )
         output = ((getattr(result, "stdout", "") or "") + (getattr(result, "stderr", "") or "")).strip()
