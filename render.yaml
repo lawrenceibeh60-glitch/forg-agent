@@ -22,11 +22,22 @@ services:
         sync: false
       - key: RENDER_API_KEY
         sync: false
+      - key: RENDER_WORKSPACE_ID
+        value: tea-d7udhnosfn5c73b2jva0
       # Public Render must not execute arbitrary commands on the host.
       - key: ALLOW_SHELL
-        value: "0"
+        value: "1"
       - key: SANDBOX_DOCKER
         value: "0"
+      # Run commands in ephemeral managed sandboxes, not on this web service.
+      - key: SANDBOX_RENDER
+        value: "1"
+      - key: SANDBOX_NETWORK
+        value: "0"
+      - key: SANDBOX_NETWORK_POLICY
+        value: deny
+      - key: SANDBOX_COMMAND_TIMEOUT
+        value: "120"
       - key: SANDBOX_ALLOW_HOST_EXECUTION
         value: "0"
       - key: OAUTH_ENCRYPTION_SECRET
