@@ -234,6 +234,9 @@ async def chat(req: Req):
         "\n\nAUTONOMOUS EXECUTION CONTRACT (task-specific state is checkpointed):"
         "\n- Use the persisted plan as a live checklist, refine it with update_plan when needed, and keep the current step accurate."
         "\n- For engineering work, inspect before editing; identify dependencies and blast radius; make the smallest complete change."
+        "\n- For non-trivial creative/design tasks, compare distinct candidate approaches against the user's intent before selecting one; critique the chosen approach before implementation."
+        "\n- For multi-part work, maintain a compact to-do list with dependencies and acceptance checks; adapt it from evidence rather than restarting from scratch."
+        "\n- When the same action fails, retrace the exact inputs, output, preconditions, and assumptions; change the hypothesis before trying a genuinely different diagnostic. Never repeat an identical failing action."
         "\n- After each meaningful action, read its output and update the next step based on evidence, not optimism."
         "\n- Run focused verification after edits, inspect failures, repair within the execution budget, and rerun the failing check."
         "\n- Never equate a tool call with success. Preserve exact blockers and evidence in checkpoints; report what was and was not verified."
@@ -261,6 +264,10 @@ async def chat(req: Req):
             sandbox_blocked = False
             sandbox_block_reason = ""
             sandbox_failure_count = 0
+            action_failures = {}
+            repeated_action_blocks = 0
+            repeated_failure_blocked = False
+            repeated_failure_reason = ""
             execution_tools = {"run_command", "run_tests", "lint", "python_eval", "node_eval"}
             max_turns = max(40, min(80, int(os.getenv("FORGE_MAX_AGENT_TURNS", "60"))))
             for turn in range(1, max_turns + 1):
@@ -339,11 +346,21 @@ async def chat(req: Req):
                         except asyncio.TimeoutError: ok = False
                         PENDING.pop(c["id"], None)
                         tasks.update(task_id, status="running", current_step=f"Approval resolved: {name}", checkpoint={"phase": "tool_execution", "tool": name, "approved": bool(ok), "turn": turn})
+                    action_key = name + "|" + json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)
+                    prior_failure = action_failures.get(action_key)
                     try:
                         if sandbox_blocked and name in execution_tools:
                             out = ("Execution circuit breaker is OPEN for this task. A sandbox infrastructure/configuration failure was already confirmed: "
                                    + sandbox_block_reason[:500]
                                    + ". This command was NOT run. Do not retry or switch execution tools; use static inspection and report the blocker.")
+                        elif prior_failure:
+                            repeated_action_blocks += 1
+                            out = ("REPEATED ACTION BLOCKED: this exact tool and arguments already failed. Previous result: "
+                                   + prior_failure[:900]
+                                   + ". Do not repeat it or make cosmetic argument changes. Retrace preconditions and evidence, inspect relevant source/configuration, form a new hypothesis, and choose a genuinely different diagnostic or repair.")
+                            if repeated_action_blocks >= 2:
+                                repeated_failure_blocked = True
+                                repeated_failure_reason = (name + " repeated after prior failure: " + prior_failure)[:1200]
                         elif not ok:
                             out = "Action was denied by the user. Do not retry the same action unless the user changes their decision."
                         elif name.startswith("mcp__"):
@@ -355,6 +372,8 @@ async def chat(req: Req):
                             out = await asyncio.to_thread(tools.REG[name], **args)
                     except Exception as e:
                         out = f"Tool {name} failed: {type(e).__name__}: {e}."
+                    if agent_runtime.action_failed(str(out)) and not prior_failure:
+                        action_failures[action_key] = str(out)[:1500]
                     if name in execution_tools and agent_runtime.sandbox_blocker(str(out)):
                         sandbox_failure_count += 1
                         sandbox_blocked = True
@@ -384,6 +403,30 @@ async def chat(req: Req):
                     if name != "update_plan":
                         checkpoint_fields["current_step"] = f"Reviewed result from {name}"
                     tasks.update(task_id, **checkpoint_fields)
+                if repeated_failure_blocked:
+                    msgs.append({"role": "user", "content":
+                        "[REPEATED FAILURE CIRCUIT BREAKER] Forge attempted the same failing action again after receiving the previous result. "
+                        "Stop command execution for this task. Do not retry the same command or disguise it with cosmetic argument changes. "
+                        "Give a concise causal diagnosis from available evidence, state which independent checks were performed, and identify the missing prerequisite or next manual fix. "
+                        "Do not claim success.\nRepeated failure evidence: " + repeated_failure_reason[:1200]})
+                    final_text = ""
+                    try:
+                        async for kind, value in llm.stream(msgs, [], purpose="review"):
+                            if kind == "text":
+                                final_text += value
+                                yield sse("delta", {"text": value})
+                    except Exception:
+                        final_text = "I stopped repeated execution attempts to avoid wasting tokens. The last repeated failure was: " + repeated_failure_reason[:700]
+                        yield sse("delta", {"text": final_text})
+                    if final_text:
+                        msgs.append({"role": "assistant", "content": final_text})
+                    task_status = "blocked"
+                    tasks.update(task_id, status="blocked", current_step="Stopped after repeated identical action failures",
+                        last_error=repeated_failure_reason[:12000],
+                        checkpoint=orchestrator.checkpoint("repeated_failure_circuit_open", turn=turn,
+                            reason=repeated_failure_reason[:1000], repeated_action_blocks=repeated_action_blocks,
+                            failed_action_count=len(action_failures), next_action="Use independent diagnosis or fix the recorded precondition"))
+                    break
                 if sandbox_blocked:
                     # Stop the agent loop after a confirmed sandbox infrastructure blocker.
                     msgs.append({"role": "user", "content":
