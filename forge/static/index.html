@@ -1,0 +1,162 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Forge</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<style>
+:root{--bg:#faf9f5;--side:#f0eee6;--card:#fff;--ink:#141413;--mute:#73726c;--line:#e3e0d5;--acc:#c96442;--code:#f0eee6;--user:#f0eee6;--add:#1f7a46;--del:#c23b3b;--sh:0 2px 14px #0000000f}
+@media(prefers-color-scheme:dark){:root{--bg:#262624;--side:#1f1e1d;--card:#30302e;--ink:#faf9f5;--mute:#a09f98;--line:#40403c;--acc:#d97757;--code:#1f1e1d;--user:#3a3936;--add:#6ee7a0;--del:#f58a8a;--sh:0 2px 14px #0005}}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{font:15px/1.6 Inter,system-ui,sans-serif;background:var(--bg);color:var(--ink);display:flex;overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+aside{width:272px;background:var(--side);display:flex;flex-direction:column;padding:12px 10px;gap:2px;overflow:auto;transition:margin .2s;flex:none}
+aside.hide{margin-left:-272px}
+.logo{display:flex;align-items:center;gap:8px;font:500 22px 'Source Serif 4',serif;padding:6px 10px 14px}
+.logo svg{width:22px;color:var(--acc)}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border:0;background:none;border-radius:10px;width:100%;text-align:left;font-size:14px}
+.nav:hover,#sess a:hover{background:#00000010}
+.nav .ic{width:24px;height:24px;border-radius:50%;background:var(--acc);color:#fff;display:grid;place-items:center;font-size:16px}
+h4{margin:16px 10px 4px;font-size:12px;color:var(--mute);font-weight:500}
+#sess a{display:block;padding:6px 10px;border-radius:8px;font-size:14px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+details.ws summary{font-size:12px;color:var(--mute);padding:6px 10px;cursor:pointer}
+#tree{font:11.5px 'JetBrains Mono',monospace;color:var(--mute);white-space:pre-wrap;overflow-wrap:anywhere;padding:0 10px}
+.me{margin-top:auto;border-top:1px solid var(--line);padding-top:8px}
+main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
+.top{position:absolute;top:8px;left:10px;z-index:2}
+.icon{border:0;background:none;width:34px;height:34px;border-radius:8px;color:var(--mute);font-size:18px}.icon:hover{background:var(--side)}
+#feed{flex:1;overflow:auto;padding:56px 16px 16px}.wrap{max-width:740px;margin:0 auto}
+main.empty{justify-content:center;align-items:center}
+main.empty #feed{flex:none;overflow:visible;padding:0;width:100%}
+main.empty form{margin-bottom:0}
+.hello{display:flex;align-items:center;justify-content:center;gap:14px;font:400 40px/1.2 'Source Serif 4',serif;margin-bottom:26px}
+.hello svg{width:38px;color:var(--acc);flex:none}
+form{width:100%;padding:0 16px 14px}
+.box{max-width:740px;margin:0 auto;background:var(--card);border:1px solid var(--line);border-radius:22px;padding:14px 14px 10px 18px;box-shadow:var(--sh)}
+.box:focus-within{border-color:#a8a69b}
+#in{width:100%;border:0;outline:0;background:transparent;resize:none;font:inherit;color:inherit;max-height:220px;min-height:26px}
+.bar{display:flex;align-items:center;gap:6px;margin-top:6px}
+.tg{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mute);padding:4px 8px;border-radius:8px;cursor:pointer}.tg:hover{background:var(--side)}
+#model{margin-left:auto;border:0;background:none;color:var(--mute);font-size:13px;padding:5px 8px;border-radius:8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#model:hover{background:var(--side)}
+#go{border:0;border-radius:9px;width:32px;height:32px;background:var(--acc);color:#fff;font-size:16px}
+#go:disabled{opacity:.4}
+#pills{display:none;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px;padding:0 16px;max-width:740px}
+main.empty #pills{display:flex}
+#pills button{border:1px solid var(--line);background:none;border-radius:12px;padding:7px 14px;font-size:13.5px;color:var(--mute)}
+#pills button:hover{background:var(--side);color:var(--ink)}
+.msg{margin:22px 0}
+.user{background:var(--user);border-radius:16px;padding:9px 16px;width:fit-content;max-width:85%;margin-left:auto;white-space:pre-wrap}
+.bot{font:400 16.5px/1.7 'Source Serif 4',Georgia,serif}
+.bot p{margin:.6em 0}.bot ul,.bot ol{padding-left:1.4em}
+.bot a{color:var(--acc)}
+.bot pre{background:var(--code);border:1px solid var(--line);padding:14px;border-radius:12px;overflow:auto;font:13px/1.55 'JetBrains Mono',monospace;position:relative}
+.bot :not(pre)>code{font:.86em 'JetBrains Mono',monospace;background:var(--code);padding:1px 5px;border-radius:5px}
+.cp{position:absolute;top:8px;right:8px;font:12px Inter,sans-serif;border:1px solid var(--line);background:var(--card);border-radius:7px;padding:2px 8px;color:var(--mute)}
+details.tool{border:1px solid var(--line);border-radius:12px;margin:10px 0;font:13.5px Inter,sans-serif;overflow:hidden}
+details.tool summary{padding:9px 12px;cursor:pointer;display:flex;gap:8px;align-items:center;list-style:none}
+details.tool summary::after{content:'';margin-left:auto;width:7px;height:7px;border-right:1.8px solid var(--mute);border-bottom:1.8px solid var(--mute);transform:rotate(-45deg);transition:transform .15s}
+details.tool[open] summary::after{transform:rotate(45deg)}
+details.tool summary span{color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+details.tool pre{margin:0;padding:10px 12px;border-top:1px solid var(--line);max-height:300px;overflow:auto;font:12px/1.5 'JetBrains Mono',monospace;white-space:pre-wrap;background:var(--code)}
+pre i{display:block;font-style:normal}.add{color:var(--add)}.del{color:var(--del)}.hunk{color:var(--acc)}
+.spin{width:11px;height:11px;border-radius:50%;border:2px solid var(--acc);border-top-color:transparent;animation:r .8s linear infinite;flex:none}
+@keyframes r{to{transform:rotate(360deg)}}.ok{color:var(--add)}
+.ask{padding:10px 12px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center;font-family:Inter,sans-serif}
+.btn{border:1px solid var(--line);background:var(--card);border-radius:9px;padding:6px 14px;font-size:13.5px}.btn:hover{background:var(--side)}
+.btn.pri{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+dialog{border:1px solid var(--line);border-radius:20px;background:var(--bg);color:var(--ink);width:min(580px,94vw);padding:22px;max-height:88vh;font:14px Inter,sans-serif}
+dialog::backdrop{background:#0007}
+dialog h3{font:500 24px 'Source Serif 4',serif;margin:0}
+dialog input,dialog select,dialog textarea{width:100%;margin:4px 0;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit}
+.row{display:flex;gap:8px;align-items:center;padding:6px 0}.row b{flex:1;font-weight:500}
+.dot{width:8px;height:8px;border-radius:50%;background:#c33;flex:none}.dot.on{background:#2eb872}
+@media(max-width:800px){aside{position:fixed;z-index:5;height:100%;box-shadow:var(--sh)}aside.hide{margin-left:-290px}.hello{font-size:30px}}
+@media(prefers-reduced-motion:reduce){.spin{animation:none}}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:middle}
+#pills button{display:flex;gap:7px;align-items:center}#go{display:grid;place-items:center}.icon{display:grid;place-items:center}.row .i{color:var(--mute)}
+</style></head><body>
+<aside id="side"><div class="logo"><svg id="lg" viewBox="0 0 24 24"><use href="#star"/></svg>Forge</div>
+<button class="nav" onclick="newChat()"><span class="ic"><svg class="i" viewBox="0 0 24 24" style="width:14px;height:14px;stroke:#fff;stroke-width:2.4"><use href="#i-plus"/></svg></span>New chat</button>
+<h4>Recents</h4><div id="sess"></div>
+<details class="ws"><summary>Sandbox files</summary><a href="#" onclick="if(sid)location='/api/sandbox.zip?sid='+sid;return false" style="display:block;font-size:12px;color:var(--acc);padding:0 10px 6px">Download as .zip</a><div id="tree">(empty)</div></details>
+<div class="me"><button class="nav" onclick="openSet()"><svg class="i" viewBox="0 0 24 24"><use href="#i-gear"/></svg> Settings</button></div></aside>
+<svg width="0" height="0" style="position:absolute"><symbol id="star" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 2.5v19M2.5 12h19M5.3 5.3l13.4 13.4M18.7 5.3L5.3 18.7"/></g></symbol><symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol><symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol><symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></symbol><symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5"/></symbol><symbol id="i-code" viewBox="0 0 24 24"><path d="M8 8l-5 4 5 4M16 8l5 4-5 4M14 5l-4 14"/></symbol><symbol id="i-branch" viewBox="0 0 24 24"><path d="M6 3v12M18 9a3 3 0 100-6 3 3 0 000 6zM6 21a3 3 0 100-6 3 3 0 000 6zM18 9c0 6-12 3-12 6"/></symbol><symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18a4 4 0 010-8 5 5 0 019.6-1A4.5 4.5 0 0117 18z"/></symbol><symbol id="i-globe" viewBox="0 0 24 24"><path d="M12 21a9 9 0 100-18 9 9 0 000 18zM3 12h18M12 3c3 3 3 15 0 18-3-3-3-15 0-18"/></symbol><symbol id="i-db" viewBox="0 0 24 24"><path d="M12 9c4.4 0 8-1.3 8-3s-3.6-3-8-3-8 1.3-8 3 3.6 3 8 3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol><symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 005.4 5.4l-9 9a2.1 2.1 0 01-3-3l9-9a4 4 0 01-2.4-2.4z"/></symbol><symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 00-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0012 3z"/></symbol><symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 01-12 0zM12 17v4"/></symbol><symbol id="i-term" viewBox="0 0 24 24"><path d="M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2zM7 9l3 3-3 3M13 15h4"/></symbol><symbol id="i-search" viewBox="0 0 24 24"><path d="M11 18a7 7 0 100-14 7 7 0 000 14zM20 20l-4-4"/></symbol><symbol id="i-gear" viewBox="0 0 24 24"><path d="M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></symbol><symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></symbol></svg>
+<main id="m" class="empty"><div class="top"><button class="icon" onclick="toggleSide()" aria-label="Toggle sidebar"><svg class="i" viewBox="0 0 24 24"><use href="#i-menu"/></svg></button></div>
+<div id="feed"><div class="wrap" id="log"></div></div>
+<form id="f"><div class="box"><textarea id="in" dir="auto" rows="1" placeholder="How can I help you today?"></textarea>
+<div class="bar"><label class="tg" title="Run tools without asking"><input type="checkbox" id="auto"> Auto-approve</label>
+<button type="button" id="model" onclick="openSet()">Add a model</button>
+<button id="go" type="submit" aria-label="Send"><svg class="i" viewBox="0 0 24 24"><use href="#i-up"/></svg></button></div></div></form>
+<div id="pills"></div></main>
+<dialog id="set"><div class="row"><h3 style="flex:1">Settings</h3><button class="btn" onclick="set.close()">Close</button></div>
+<h4>Models</h4><div id="plist"></div>
+<select id="pre"></select><input id="pkey" type="password" placeholder="API key"><input id="pmodel" placeholder="Model name, e.g. gpt-4.1, claude-sonnet-4-5, gemini-2.5-pro"><input id="purl" placeholder="Base URL (only for Custom or Ollama)">
+<button class="btn pri" onclick="addP()">Save model</button>
+<h4>MCP servers</h4><div id="mcp"></div>
+<textarea id="mcfg" rows="3" placeholder='Paste MCP config JSON, e.g. {"mcpServers":{"fs":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","."]}}}'></textarea>
+<button class="btn pri" onclick="addMcp()">Connect</button>
+<h4>Tools <span id="tcount" style="font-weight:400"></span></h4><input id="tq" placeholder="Search tools" oninput="drawT()"><div id="tlist" style="max-height:260px;overflow:auto"></div>
+<h4>Connections</h4><div id="st"></div></dialog>
+<script>
+const $=s=>document.querySelector(s),log=$('#log'),feed=$('#feed'),H={'Content-Type':'application/json'};let sid=null,busy=false,ctrl=null;
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function ico(n,c=''){return `<svg class="i ${c}" viewBox="0 0 24 24"><use href="#i-${n}"/></svg>`}
+let CAT={},TL=[];
+const PI={'Clone a repo':'branch','Fix bugs':'code','Review changes':'search','Deploy':'cloud','Build an app':'code','Use a tool':'plug'};
+const STAR='<svg viewBox="0 0 24 24"><use href="#star"/></svg>';
+function toggleSide(){$('#side').classList.toggle('hide')}
+if(innerWidth<800)$('#side').classList.add('hide');
+async function j(u,o){const r=await fetch(u,o);if(r.status===401){const p=prompt('Password');if(p){await fetch('/api/login',{method:'POST',headers:H,body:JSON.stringify({password:p})});return j(u,o)}throw 0}return r.json()}
+const post=(u,b)=>j(u,{method:'POST',headers:H,body:JSON.stringify(b||{})});
+function md(el,t){el.innerHTML=marked.parse(t);el.querySelectorAll('pre').forEach(p=>{const b=document.createElement('button');b.className='cp';b.textContent='Copy';b.onclick=()=>{navigator.clipboard.writeText(p.innerText.replace(/Copy$/,''));b.textContent='Copied'};p.appendChild(b)})}
+function fmt(s){return /^(diff --git|@@ )/m.test(s)?s.split('\n').map(l=>`<i class="${l[0]=='+'&&!l.startsWith('+++')?'add':l[0]=='-'&&!l.startsWith('---')?'del':l.startsWith('@@')?'hunk':''}">${esc(l)||' '}</i>`).join(''):esc(s)}
+function add(c,h){const d=document.createElement('div');d.className='msg '+c;d.dir='auto';d.innerHTML=h;log.appendChild(d);return d}
+function empty(b){$('#m').classList.toggle('empty',b)}
+const PILLS={'Clone a repo':'List my GitHub repos and clone the one I pick','Fix bugs':'Find and fix bugs in this workspace, then run the tests','Review changes':'Review my latest changes and show me the diff','Deploy':'Check my Render services and the latest deploy status','Build an app':'Create a new FastAPI app in the sandbox, run it and test it','Use a tool':'List the MCP tools you have access to and what they do'};
+function welcome(){const h=new Date().getHours();log.innerHTML=`<div class="hello">${STAR}${h<5?'Burning the midnight oil':h<12?'Good morning':h<18?'Good afternoon':'Good evening'}, builder</div>`;empty(true);
+$('#pills').innerHTML=Object.keys(PILLS).map(k=>`<button>${ico(PI[k])}${k}</button>`).join('');$('#pills').querySelectorAll('button').forEach(b=>b.onclick=()=>{$('#in').value=PILLS[b.textContent];$('#in').focus()})}
+function newChat(){sid=null;welcome();if(innerWidth<800)$('#side').classList.add('hide')}
+async function refresh(){try{const s=await j('/api/status');$('#st').innerHTML=Object.entries(s).map(([k,v])=>`<div class="row"><i class="dot ${v?'on':''}"></i><b>${k}</b></div>`).join('');
+$('#tree').textContent=(await j('/api/files?sid='+(sid||''))).files.join('\n');
+$('#sess').innerHTML=(await j('/api/sessions')).map(x=>`<a onclick="openS('${x.id}')">${esc(x.title)}</a>`).join('');
+const p=await j('/api/providers'),a=p.providers.find(x=>x.id===p.active);$('#model').textContent=a?a.name:'Add a model'}catch{}}
+async function openS(id){sid=id;log.innerHTML='';empty(false);if(innerWidth<800)$('#side').classList.add('hide');for(const m of await j('/api/sessions/'+id)){const d=add(m.role==='user'?'user':'bot','');m.role==='user'?d.textContent=m.content:md(d,m.content)}}
+$('#in').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#f').requestSubmit()}});
+$('#in').addEventListener('input',e=>{e.target.style.height='auto';e.target.style.height=e.target.scrollHeight+'px'});
+$('#f').onsubmit=async e=>{e.preventDefault();
+if(busy){ctrl&&ctrl.abort();return}const t=$('#in').value.trim();if(!t)return;$('#in').value='';$('#in').style.height='auto';
+if($('#m').classList.contains('empty')){log.innerHTML='';empty(false)}busy=true;$('#go').innerHTML=ico('stop');ctrl=new AbortController();
+const u=add('user','');u.textContent=t;const bot=add('bot',''),tl={};let cur=null,txt='';
+try{const r=await fetch('/api/chat',{method:'POST',headers:H,signal:ctrl.signal,body:JSON.stringify({session:sid,message:t,auto:$('#auto').checked})});
+if(r.status===401){await j('/api/status');throw new Error('Signed in. Send your message again.')}
+const rd=r.body.getReader(),dec=new TextDecoder();let buf='';
+while(true){const{done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});const ps=buf.split('\n\n');buf=ps.pop();
+for(const p of ps){if(!p.startsWith('data: '))continue;const d=JSON.parse(p.slice(6));
+if(d.type==='session')sid=d.id;
+else if(d.type==='delta'){if(!cur){cur=document.createElement('div');bot.appendChild(cur);txt=''}txt+=d.text;md(cur,txt)}
+else if(d.type==='tool_call'){cur=null;const el=document.createElement('details');el.className='tool';
+el.innerHTML=`<summary>${ico(CAT[d.name]||(d.name.startsWith('mcp__')?'plug':'wrench'))}<i class="spin"></i><b>${esc(d.name)}</b><span>${esc(JSON.stringify(d.args)).slice(0,80)}</span></summary><pre>${esc(JSON.stringify(d.args,null,2))}</pre>`;bot.appendChild(el);tl[d.id]=el}
+else if(d.type==='approval'){const el=tl[d.id];el.open=true;const b=document.createElement('div');b.className='ask';
+b.innerHTML=`<b style="flex:1;font-weight:500">Allow this action?</b><button class="btn pri">Allow</button><button class="btn">Deny</button>`;
+const[y,n]=b.querySelectorAll('button');y.onclick=()=>{post('/api/approve',{id:d.id,ok:true});b.remove()};n.onclick=()=>{post('/api/approve',{id:d.id,ok:false});b.remove()};el.appendChild(b)}
+else if(d.type==='tool_result'){const el=tl[d.id];el.querySelector('.spin').outerHTML=ico('check','ok');el.insertAdjacentHTML('beforeend',`<pre>${fmt(d.output)}</pre>`)}
+else if(d.type==='error')bot.insertAdjacentHTML('beforeend',`<p style="color:var(--del)">${esc(d.error)}</p>`);
+feed.scrollTop=feed.scrollHeight}}}catch(x){if(x.name!=='AbortError')bot.insertAdjacentHTML('beforeend',`<p style="color:var(--del)">${esc(x.message||'Request failed')}</p>`)}
+busy=false;$('#go').innerHTML=ico('up');refresh()};
+async function openSet(){const p=await j('/api/providers');
+$('#pre').innerHTML=Object.keys(p.presets).map(k=>`<option>${k}</option>`).join('');
+$('#plist').innerHTML=p.providers.map(x=>`<div class="row"><i class="dot ${x.id===p.active?'on':''}"></i><b>${esc(x.name)}</b><button class="btn" onclick="useP('${x.id}')">Use</button><button class="btn" onclick="delP('${x.id}')">Remove</button></div>`).join('')||'<div class="row" style="color:var(--mute)">No models yet</div>';
+const m=await j('/api/mcp');$('#mcp').innerHTML=m.servers.map(s=>`<div class="row"><i class="dot ${s.connected?'on':''}"></i><b>${esc(s.name)} · ${s.tools} tools</b><button class="btn" onclick="rmMcp('${s.name}')">Remove</button></div>`).join('')||'<div class="row" style="color:var(--mute)">None connected</div>';
+loadT();if(!$('#set').open)$('#set').showModal()}
+async function loadT(){TL=await j('/api/tools');TL.forEach(t=>CAT[t.name]=t.cat);drawT()}
+function drawT(){const q=($('#tq').value||'').toLowerCase(),L=TL.filter(t=>(t.name+t.desc).toLowerCase().includes(q));$('#tcount').textContent=`(${TL.filter(t=>t.enabled).length}/${TL.length} on)`;
+$('#tlist').innerHTML=L.map(t=>`<label class="row" title="${esc(t.desc)}">${ico(t.cat)}<b>${esc(t.name)}</b><input type="checkbox" style="width:auto;margin:0" ${t.enabled?'checked':''} onchange="togT('${t.name}',this.checked)"></label>`).join('')}
+async function togT(n,e){await post('/api/tools/toggle',{name:n,enabled:e});TL.find(t=>t.name===n).enabled=e;$('#tcount').textContent=`(${TL.filter(t=>t.enabled).length}/${TL.length} on)`}
+async function addP(){if(!$('#pmodel').value)return alert('Enter a model name');await post('/api/providers',{preset:$('#pre').value,key:$('#pkey').value,model:$('#pmodel').value,base_url:$('#purl').value});$('#pkey').value='';openSet();refresh()}
+async function useP(i){await post(`/api/providers/${i}/activate`);openSet();refresh()}
+async function delP(i){await j('/api/providers/'+i,{method:'DELETE'});openSet();refresh()}
+async function addMcp(){let c;try{c=JSON.parse($('#mcfg').value)}catch{return alert('That is not valid JSON')}
+const r=await post('/api/mcp',{config:c});$('#mcfg').value='';alert(Object.entries(r.results||{}).map(([k,v])=>k+': '+v).join('\n'));openSet()}
+async function rmMcp(n){await j('/api/mcp/'+n,{method:'DELETE'});openSet()}
+welcome();refresh();loadT();
+</script></body></html>
