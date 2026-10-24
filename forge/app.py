@@ -1,4 +1,4 @@
-import os, json, uuid, asyncio, hmac, hashlib, secrets, time
+import os, json, uuid, asyncio, hmac, hashlib, secrets, time, tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
@@ -439,6 +439,24 @@ def sandbox_status():
     safe_reason = "" if execution in {"render-managed", "docker-isolated", "development-host"} else remote.get("reason") or "No isolated command runner is configured."
     return {"files": True, "download_zip": True, "execution": execution,
             "sandbox": remote, "safe_reason": safe_reason}
+
+@app.post("/api/sandbox/test")
+def sandbox_test():
+    """Explicit, authenticated end-to-end test of Render sandbox provisioning and execution."""
+    try:
+        import render_sandbox
+        if not render_sandbox.configured():
+            return JSONResponse({"ok": False, "error": render_sandbox.status().get("reason", "Sandbox is not configured.")}, status_code=503)
+        workspace_root = Path(os.getenv("WORKSPACE", "workspace")).resolve()
+        workspace_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".forge-sandbox-test-", dir=workspace_root) as tmp:
+            result = render_sandbox.run("printf 'FORGE_SANDBOX_OK\\\\n'", Path(tmp), timeout=45)
+        ok = "FORGE_SANDBOX_OK" in result and "[exit 0;" in result
+        if not ok:
+            return JSONResponse({"ok": False, "error": result[-1200:]}, status_code=502)
+        return {"ok": True, "message": "Render sandbox provisioned, executed a test command, and terminated successfully.", "result": result[-500:]}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:500]}"}, status_code=502)
 
 @app.post("/api/providers")
 def prov_add(b: dict): return {"id": llm.add(b.get("preset", "custom"), b.get("key", ""), b["model"], b.get("base_url", ""), b.get("name", ""))}
