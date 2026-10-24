@@ -9,7 +9,46 @@ from pathlib import Path
 from threading import RLock
 
 _LOCK = RLock()
-_DB = Path(os.getenv("FORGE_INTELLIGENCE_DB", os.getenv("TASK_DB_PATH", "data/tasks.sqlite3")))
+_DEFAULT_DB = Path(os.getenv("FORGE_INTELLIGENCE_DB", os.getenv("TASK_DB_PATH", "data/tasks.sqlite3")))
+_DB = _DEFAULT_DB
+
+
+def _backend():
+    mode = os.getenv("TASK_DB_BACKEND", "").strip().lower()
+    if mode == "sqlite" or _DB != _DEFAULT_DB:
+        return "sqlite"
+    if mode == "postgres":
+        return "postgres"
+    if os.getenv("DATABASE_URL", "").strip() and not os.getenv("TASK_DB_PATH", "").strip():
+        return "postgres"
+    return "sqlite"
+
+
+class _Connection:
+    def __init__(self, raw, backend):
+        self.raw, self.backend = raw, backend
+
+    def execute(self, sql, params=()):
+        if self.backend == "postgres":
+            sql = sql.replace("?", "%s")
+        return self.raw.execute(sql, params)
+
+    def commit(self):
+        return self.raw.commit()
+
+    def close(self):
+        return self.raw.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            self.raw.commit() if exc_type is None else self.raw.rollback()
+        finally:
+            self.raw.close()
+        return False
+
 
 IGNORED_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache", "dist", "build"}
 SECRET_NAMES = {".env", ".env.local", ".env.production", ".netrc", "id_rsa", "id_ed25519"}
@@ -17,16 +56,37 @@ SECRET_SUFFIXES = {".pem", ".key", ".p12", ".pfx"}
 TEXT_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".json", ".md", ".toml", ".yaml", ".yml", ".txt", ".sql", ".sh", ".go", ".rs", ".java", ".c", ".h"}
 
 def _connect():
-    _DB.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(str(_DB), timeout=10)
-    db.row_factory = sqlite3.Row
-    db.execute("PRAGMA busy_timeout=10000")
-    db.execute("""CREATE TABLE IF NOT EXISTS project_memory (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
-        kind TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
-        created_at REAL NOT NULL, updated_at REAL NOT NULL,
-        UNIQUE(session_id, kind, title))""")
+    backend = _backend()
+    if backend == "postgres":
+        url = os.getenv("DATABASE_URL", "").strip()
+        if not url:
+            raise RuntimeError("TASK_DB_BACKEND=postgres requires DATABASE_URL")
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+        except ImportError as exc:
+            raise RuntimeError("PostgreSQL memory requires psycopg[binary]") from exc
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://"):]
+        raw = psycopg.connect(url, connect_timeout=10, row_factory=dict_row)
+        db = _Connection(raw, backend)
+        db.execute("""CREATE TABLE IF NOT EXISTS project_memory (
+            id BIGSERIAL PRIMARY KEY, session_id TEXT NOT NULL, kind TEXT NOT NULL,
+            title TEXT NOT NULL, body TEXT NOT NULL, created_at DOUBLE PRECISION NOT NULL,
+            updated_at DOUBLE PRECISION NOT NULL, UNIQUE(session_id, kind, title))""")
+    else:
+        _DB.parent.mkdir(parents=True, exist_ok=True)
+        raw = sqlite3.connect(str(_DB), timeout=10)
+        raw.row_factory = sqlite3.Row
+        raw.execute("PRAGMA busy_timeout=10000")
+        db = _Connection(raw, backend)
+        db.execute("""CREATE TABLE IF NOT EXISTS project_memory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
+            kind TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
+            created_at REAL NOT NULL, updated_at REAL NOT NULL,
+            UNIQUE(session_id, kind, title))""")
     db.execute("CREATE INDEX IF NOT EXISTS project_memory_session ON project_memory(session_id, updated_at DESC)")
+    db.commit()
     return db
 
 def _workspace(sid: str, tools_module) -> Path:
