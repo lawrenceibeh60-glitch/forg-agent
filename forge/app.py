@@ -384,32 +384,32 @@ async def chat(req: Req):
                     if name != "update_plan":
                         checkpoint_fields["current_step"] = f"Reviewed result from {name}"
                     tasks.update(task_id, **checkpoint_fields)
-            if sandbox_blocked:
-                # Stop the agent loop after a confirmed sandbox infrastructure blocker.
-                msgs.append({"role": "user", "content":
-                    "[SANDBOX CIRCUIT BREAKER OPEN] Command execution is blocked for this task. "
-                    "Do not call any command, shell, test-runner, interpreter, Docker, or sandbox tool again. "
-                    "Use only static inspection or existing evidence. Explain the exact blocker and the one configuration/access fix needed. "
-                    "Do not claim tests passed.\nConfirmed blocker: " + sandbox_block_reason[:1000]})
-                final_text = ""
-                try:
-                    async for kind, value in llm.stream(msgs, [], purpose="review"):
-                        if kind == "text":
-                            final_text += value
-                            yield sse("delta", {"text": value})
-                    if final_text:
+                if sandbox_blocked:
+                    # Stop the agent loop after a confirmed sandbox infrastructure blocker.
+                    msgs.append({"role": "user", "content":
+                        "[SANDBOX CIRCUIT BREAKER OPEN] Command execution is blocked for this task. "
+                        "Do not call any command, shell, test-runner, interpreter, Docker, or sandbox tool again. "
+                        "Use only static inspection or existing evidence. Explain the exact blocker and the one configuration/access fix needed. "
+                        "Do not claim tests passed.\nConfirmed blocker: " + sandbox_block_reason[:1000]})
+                    final_text = ""
+                    try:
+                        async for kind, value in llm.stream(msgs, [], purpose="review"):
+                            if kind == "text":
+                                final_text += value
+                                yield sse("delta", {"text": value})
+                        if final_text:
+                            msgs.append({"role": "assistant", "content": final_text})
+                    except Exception:
+                        final_text = "Command execution is blocked by sandbox configuration. I stopped retrying to avoid wasting tokens. Blocker: " + sandbox_block_reason[:700]
+                        yield sse("delta", {"text": final_text})
                         msgs.append({"role": "assistant", "content": final_text})
-                except Exception:
-                    final_text = "Command execution is blocked by sandbox configuration. I stopped retrying to avoid wasting tokens. Blocker: " + sandbox_block_reason[:700]
-                    yield sse("delta", {"text": final_text})
-                    msgs.append({"role": "assistant", "content": final_text})
-                task_status = "blocked"
-                tasks.update(task_id, status="blocked", current_step="Execution stopped by sandbox circuit breaker",
-                    last_error=sandbox_block_reason[:12000],
-                    checkpoint=orchestrator.checkpoint("sandbox_circuit_open", turn=locals().get("turn", 0),
-                        reason=sandbox_block_reason[:1000], failures=sandbox_failure_count, message_count=len(msgs),
-                        next_action="Fix sandbox configuration/access, then start or resume a task"))
-                break
+                    task_status = "blocked"
+                    tasks.update(task_id, status="blocked", current_step="Execution stopped by sandbox circuit breaker",
+                        last_error=sandbox_block_reason[:12000],
+                        checkpoint=orchestrator.checkpoint("sandbox_circuit_open", turn=locals().get("turn", 0),
+                            reason=sandbox_block_reason[:1000], failures=sandbox_failure_count, message_count=len(msgs),
+                            next_action="Fix sandbox configuration/access, then start or resume a task"))
+                    break
         except asyncio.CancelledError:
             task_status = "blocked"
             tasks.update(task_id, status="blocked", last_error="The streaming request was interrupted; resume from the saved checkpoint.", current_step="Connection interrupted; checkpoint saved", checkpoint={"phase": "client_cancelled", "message_count": len(msgs), "turn": locals().get("turn", 0)})
