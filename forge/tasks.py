@@ -9,6 +9,7 @@ import os
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 import uuid
 from pathlib import Path
 
@@ -20,6 +21,7 @@ def _connect():
     _DB.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(str(_DB), timeout=10)
     db.row_factory = sqlite3.Row
+    db.execute("PRAGMA busy_timeout=10000")
     db.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
             id TEXT PRIMARY KEY,
@@ -40,6 +42,16 @@ def _connect():
     return db
 
 
+@contextmanager
+def _database():
+    db = _connect()
+    try:
+        yield db
+        db.commit()
+    finally:
+        db.close()
+
+
 def _decode(row):
     if row is None:
         return None
@@ -55,7 +67,7 @@ def _decode(row):
 def create(session_id, goal):
     now = time.time()
     task_id = uuid.uuid4().hex
-    with _LOCK, _connect() as db:
+    with _LOCK, _database() as db:
         db.execute(
             "INSERT INTO tasks(id,session_id,goal,status,created_at,updated_at) VALUES(?,?,?,?,?,?)",
             (task_id, str(session_id), str(goal)[:12000], "running", now, now),
