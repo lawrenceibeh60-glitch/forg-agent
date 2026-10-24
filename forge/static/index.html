@@ -53,7 +53,7 @@ main.empty #pills{display:flex}
 .bot pre{background:var(--code);border:1px solid var(--line);padding:14px;border-radius:12px;overflow:auto;font:13px/1.55 'JetBrains Mono',monospace;position:relative}
 .bot :not(pre)>code{font:.86em 'JetBrains Mono',monospace;background:var(--code);padding:1px 5px;border-radius:5px}
 .cp{position:absolute;top:8px;right:8px;font:12px Inter,sans-serif;border:1px solid var(--line);background:var(--card);border-radius:7px;padding:2px 8px;color:var(--mute)}
-details.tool{border:1px solid var(--line);border-radius:12px;margin:10px 0;font:13.5px Inter,sans-serif;overflow:hidden}
+details.tool{border:1px solid var(--line);border-radius:12px;margin:10px 0;font:13.5px Inter,sans-serif;overflow:hidden}.agent-progress{font-size:12px;color:var(--mute);padding:7px 0;opacity:.9}
 details.tool summary{padding:9px 12px;cursor:pointer;display:flex;gap:8px;align-items:center;list-style:none}
 details.tool summary::after{content:'';margin-left:auto;width:7px;height:7px;border-right:1.8px solid var(--mute);border-bottom:1.8px solid var(--mute);transform:rotate(-45deg);transition:transform .15s}
 details.tool[open] summary::after{transform:rotate(45deg)}
@@ -140,13 +140,14 @@ $('#in').addEventListener('input',e=>{e.target.style.height='auto';e.target.styl
 $('#f').onsubmit=async e=>{e.preventDefault();
 if(busy){ctrl&&ctrl.abort();return}const t=$('#in').value.trim();if(!t)return;$('#in').value='';$('#in').style.height='auto';
 if($('#m').classList.contains('empty')){log.innerHTML='';empty(false)}busy=true;$('#go').innerHTML=ico('stop');ctrl=new AbortController();
-const u=add('user','');u.textContent=t;const bot=add('bot',''),tl={};let cur=null,txt='';
+const u=add('user','');u.textContent=t;const bot=add('bot',''),tl={};let cur=null,txt='';const status=document.createElement('div');status.className='agent-progress';status.textContent='Starting…';bot.appendChild(status);
 try{const r=await fetch('/api/chat',{method:'POST',headers:H,signal:ctrl.signal,body:JSON.stringify({session:sid,message:t,auto:$('#auto').checked})});
 if(r.status===401){await j('/api/status');throw new Error('Signed in. Send your message again.')}
 const rd=r.body.getReader(),dec=new TextDecoder();let buf='';
 while(true){const{done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});const ps=buf.split('\n\n');buf=ps.pop();
 for(const p of ps){if(!p.startsWith('data: '))continue;const d=JSON.parse(p.slice(6));
 if(d.type==='session')sid=d.id;
+else if(d.type==='progress'){status.textContent=d.text||'Working…';status.style.display='block'}
 else if(d.type==='delta'){if(!cur){cur=document.createElement('div');bot.appendChild(cur);txt=''}txt+=d.text;md(cur,txt)}
 else if(d.type==='tool_call'){cur=null;const el=document.createElement('details');el.className='tool';
 el.innerHTML=`<summary>${ico(CAT[d.name]||(d.name.startsWith('mcp__')?'plug':'wrench'))}<i class="spin"></i><b>${esc(d.name)}</b><span>${esc(JSON.stringify(d.args)).slice(0,80)}</span></summary><pre>${esc(JSON.stringify(d.args,null,2))}</pre>`;bot.appendChild(el);tl[d.id]=el}
