@@ -33,7 +33,7 @@ def load():
         # Deployment environment is authoritative for the managed xKiro entry.
         p.update({"name": "xKiro", "base_url": os.getenv("XKIRO_BASE_URL") or os.getenv("KIRO_BASE_URL") or "https://api.xkiro.com/v1",
                   "kind": "openai", "key": xkiro_key,
-                  "model": os.getenv("XKIRO_MODEL") or os.getenv("KIRO_MODEL") or "qwen/qwen3.8-max:free"})
+                  "model": os.getenv("XKIRO_MODEL") or os.getenv("KIRO_MODEL") or "qwen/qwen3.8-omni-flash:free"})
         # A deployment with XKIRO_API_KEY explicitly selects the managed xKiro route.
         # This prevents a stale saved provider selection from shadowing XKIRO_MODEL.
         d["active"] = "xkiro"
