@@ -1200,17 +1200,11 @@ def ops_overview():
     except Exception as exc:
         task_health = {"ok": False, "error": type(exc).__name__}
     try:
-        if os.getenv("SANDBOX_VERCEL", "0") == "1":
-            import vercel_sandbox
-            sandbox_health = vercel_sandbox.status()
-            sandbox_health["provider"] = "vercel"
-        elif os.getenv("SANDBOX_RENDER", "0") == "1":
-            import render_sandbox
-            sandbox_health = render_sandbox.status()
-            sandbox_health["provider"] = "render"
-        else:
-            sandbox_health = {"configured": False, "ready": False, "provider": "disabled",
-                              "reason": "No managed sandbox provider is selected."}
+        # Use the same central router as command execution so status cannot
+        # claim a provider is live-ready merely because its SDK is installed.
+        import sandbox_core
+        sandbox_health = sandbox_core.status()
+        sandbox_health["provider"] = sandbox_health.get("provider") or "disabled"
     except Exception as exc:
         sandbox_health = {"configured": False, "ready": False, "provider": "unknown",
                           "reason": type(exc).__name__}
@@ -1227,6 +1221,38 @@ def ops_overview():
                       "network_opt_in": os.getenv("SANDBOX_NETWORK", "0") == "1",
                       "github_sign_in_required": True}
     }
+
+@app.get("/readyz")
+def readyz():
+    """Public, low-detail readiness probe for deployment verification."""
+    try:
+        storage = tasks.health()
+    except Exception as exc:
+        storage = {"ok": False, "backend": "unknown", "error": type(exc).__name__}
+    try:
+        import sandbox_core
+        sandbox = sandbox_core.status()
+    except Exception as exc:
+        sandbox = {"configured": False, "ready": False, "provider": "unknown",
+                   "reason": type(exc).__name__}
+    # Database availability is required for durable task execution. Sandbox
+    # configuration is reported separately because actual API access is proven
+    # only by a real sandbox command, not by an installed SDK.
+    payload = {
+        "status": "ready" if storage.get("ok") else "degraded",
+        "storage": {"ok": bool(storage.get("ok")), "backend": storage.get("backend", "unknown"),
+                    **({"error": storage["error"]} if storage.get("error") else {})},
+        "sandbox": {
+            "provider": sandbox.get("provider") or "none",
+            "configured": bool(sandbox.get("configured")),
+            "ready": bool(sandbox.get("ready")),
+            "live_verified": bool(sandbox.get("live_verified", False)),
+            "shell_allowed": bool(sandbox.get("shell_allowed", False)),
+            "reason": str(sandbox.get("reason", "No diagnostic available."))[:240],
+        },
+    }
+    return payload if storage.get("ok") else JSONResponse(payload, status_code=503)
+
 
 @app.get("/healthz")
 def healthz():

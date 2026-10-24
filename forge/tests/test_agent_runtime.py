@@ -116,6 +116,7 @@ def test_sandbox_blocker_detects_missing_runner_and_render_access():
 def test_sandbox_blocker_does_not_mistake_normal_code_failure_for_infrastructure():
     assert not agent_runtime.sandbox_blocker("AssertionError: expected 4, got 3 [exit 1]")
     assert not agent_runtime.sandbox_blocker("npm test failed: one unit test failed")
+    assert not agent_runtime.sandbox_blocker("Sandbox failed validation because a unit test failed [exit 1]")
 
 
 def test_route_heads_selects_security_lenses_for_sandbox_tasks():
