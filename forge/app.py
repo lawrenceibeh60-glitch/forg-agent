@@ -197,10 +197,14 @@ def files(sid: str = ""):
 def sandbox_zip(sid: str):
     r = tools.use(sid); return FileResponse(shutil.make_archive(f"/tmp/forge-{r.name}", "zip", r), filename="sandbox.zip")
 
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
 @app.get("/api/status")
 def status():
     return {k: bool(os.getenv(v)) for k, v in
-            {"kiro": "KIRO_API_KEY", "github": "GITHUB_TOKEN", "render": "RENDER_API_KEY"}.items()}
+            {"xkiro": "XKIRO_API_KEY", "github": "GITHUB_TOKEN", "render": "RENDER_API_KEY"}.items()}
 
 @app.get("/")
 def index(): return FileResponse("static/index.html")
