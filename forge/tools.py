@@ -179,7 +179,7 @@ def github_list_repos():
     for item in rows:
         if isinstance(item, dict) and item.get("full_name"):
             output.append(f"{item['full_name']} - {item.get('description') or ''}")
-    return "\\n".join(output) or "GitHub returned no repositories (or entries without full_name)."
+    return "\n".join(output) or "GitHub returned no repositories (or entries without full_name)."
 
 @tool("git_clone", "Clone a GitHub repo (owner/name) into the workspace.", {"repo": ("string", "owner/name")})
 def git_clone(repo):
@@ -209,7 +209,7 @@ def github_issues(repo):
     for item in rows:
         if isinstance(item, dict) and item.get("number") is not None and item.get("title"):
             output.append(f"#{item['number']} {item['title']}" + (" [pull request]" if item.get("pull_request") else ""))
-    return "\\n".join(output) or "No open issues were returned for this repository."
+    return "\n".join(output) or "No open issues were returned for this repository."
 
 # ---------- Render ----------
 def rd(method, path, **kw):
@@ -239,7 +239,7 @@ def render_list_services():
         service = item.get("service", item) if isinstance(item, dict) else {}
         if isinstance(service, dict) and service.get("id"):
             output.append(f"{service['id']}  {service.get('name', '(unnamed)')}  ({service.get('type', 'unknown type')})")
-    return "\\n".join(output) or "Render returned no services."
+    return "\n".join(output) or "Render returned no services."
 
 @tool("render_deploy", "Trigger a deploy of a Render service.", {"service_id": ("string", "srv-...")})
 def render_deploy(service_id): return json.dumps(rd("POST", f"/services/{service_id}/deploys", json={}))[:400]
@@ -254,7 +254,7 @@ def render_deploy_status(service_id):
         deploy = item.get("deploy", item) if isinstance(item, dict) else {}
         if isinstance(deploy, dict):
             output.append(f"{deploy.get('id', '(unknown id)')} {deploy.get('status', 'unknown')} {deploy.get('createdAt', 'time unavailable')}")
-    return "\\n".join(output) or "Render returned no recent deploys."
+    return "\n".join(output) or "Render returned no recent deploys."
 
 # ---------- long-term memory ----------
 MEM = Path("data/memory.md")
