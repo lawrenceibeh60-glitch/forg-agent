@@ -35,7 +35,7 @@ services:
       - key: SANDBOX_NETWORK
         value: "0"
       - key: SANDBOX_NETWORK_POLICY
-        value: deny
+        value: deny-all
       - key: SANDBOX_COMMAND_TIMEOUT
         value: "120"
       - key: SANDBOX_ALLOW_HOST_EXECUTION
