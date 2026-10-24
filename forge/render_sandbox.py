@@ -58,14 +58,6 @@ def _stage(source: Path, target: Path):
         if count > MAX_FILES or total > MAX_BYTES:
             raise RuntimeError("workspace exceeds configured sandbox sync limits")
         dest = target / rel
-        if dest.is_symlink():
-            raise RuntimeError("sandbox output attempted to overwrite a symlink")
-        if dest.is_file():
-            try:
-                if dest.stat().st_size == p.stat().st_size and hashlib.sha256(dest.read_bytes()).digest() == hashlib.sha256(p.read_bytes()).digest():
-                    continue
-            except OSError:
-                pass
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(p, dest)
     return count, total
@@ -84,9 +76,23 @@ def _sync_back(source: Path, target: Path):
         total += p.stat().st_size
         if count > MAX_FILES or total > MAX_BYTES:
             raise RuntimeError("sandbox output exceeded sync limits; refusing to sync further files")
-        dest = (target / rel).resolve()
-        if dest != target and target not in dest.parents:
+        raw_dest = target / rel
+        # Check the lexical destination before resolving it: resolve() follows a
+        # symlink and would otherwise hide that the destination itself is a link.
+        if raw_dest.is_symlink():
+            raise RuntimeError("sandbox output attempted to overwrite a symlink")
+        resolved_parent = raw_dest.parent.resolve()
+        if resolved_parent != target and target not in resolved_parent.parents:
             raise RuntimeError("sandbox output attempted a path traversal")
+        dest = resolved_parent / raw_dest.name
+        if dest.is_symlink():
+            raise RuntimeError("sandbox output attempted to overwrite a symlink")
+        if dest.is_file():
+            try:
+                if dest.stat().st_size == p.stat().st_size and hashlib.sha256(dest.read_bytes()).digest() == hashlib.sha256(p.read_bytes()).digest():
+                    continue
+            except OSError:
+                pass
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(p, dest)
     return count
