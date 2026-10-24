@@ -107,7 +107,7 @@ def run(command: str, cwd: Path, timeout: int = 120) -> str:
             sandbox = api.create(timeout_seconds=max(60, timeout + 30), network_policy=network_policy)
             deadline = time.monotonic() + min(90, int(os.getenv("SANDBOX_START_TIMEOUT", "60")))
             while getattr(sandbox, "status", "") != "running":
-                if getattr(sandbox, "status", "") in {"failed", "terminated", "suspended"}:
+                if getattr(sandbox, "status", "") in {"failed", "errored", "terminated", "suspended"}:
                     raise RuntimeError("Render sandbox entered status " + str(sandbox.status))
                 if time.monotonic() >= deadline:
                     raise TimeoutError("Render sandbox startup timed out")
