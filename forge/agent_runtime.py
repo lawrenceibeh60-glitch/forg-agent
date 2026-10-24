@@ -329,6 +329,6 @@ def route_heads(task_text: str) -> list[str]:
         heads += ["analyst", "verifier"]
     else:
         heads += ["analyst"]
-    if re.search(r"\\b(sandbox|shell|execute|command|security|credential|permission)\\b", value):
+    if re.search(r"\b(sandbox|shell|execute|command|security|credential|permission)\b", value):
         heads = ["router", "analyst", "executor", "verifier", "critic"]
     return list(dict.fromkeys(heads))
