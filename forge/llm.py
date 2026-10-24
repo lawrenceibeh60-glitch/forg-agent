@@ -63,18 +63,55 @@ def active():
     if not p: raise RuntimeError("No model configured. Open Settings → Models and add an API key.")
     return p
 
+def fallback_provider():
+    """Return an explicitly configured fallback; never silently invent credentials."""
+    key = os.getenv("FORGE_FALLBACK_API_KEY", "").strip()
+    model = os.getenv("FORGE_FALLBACK_MODEL", "").strip()
+    base_url = os.getenv("FORGE_FALLBACK_BASE_URL", "").strip()
+    if not (key and model and base_url):
+        return None
+    kind = os.getenv("FORGE_FALLBACK_KIND", "openai").strip().lower()
+    if kind not in {"openai", "anthropic"}:
+        return None
+    return {"id": "env-fallback", "name": "Configured fallback", "key": key,
+            "model": model, "base_url": base_url.rstrip("/"), "kind": kind}
+
+
 async def stream(messages, tools):
-    """Yields ('text', chunk) as it arrives, then ('message', assistant_message)."""
-    p = active()
-    for i in range(3):  # retry rate limits / 5xx before any output has streamed
-        started = False
-        try:
-            async for x in (_anthropic if p["kind"] == "anthropic" else _openai)(p, messages, tools):
-                started = True; yield x
-            return
-        except RuntimeError as e:
-            if started or i == 2 or not re.search(r"\b(429|5\d\d)\b", str(e)): raise
-            await asyncio.sleep(3 * 2 ** i)
+    """Stream from the primary model, retry transient failures, then optionally fail over.
+
+    Fallback is only attempted before any response content has been emitted. This
+    avoids mixing two model responses or duplicating partial answers/tool calls.
+    """
+    primary = active()
+    providers = [primary]
+    fallback = fallback_provider()
+    if fallback and fallback["base_url"] != primary.get("base_url"):
+        providers.append(fallback)
+    last_error = None
+    for provider_index, p in enumerate(providers):
+        for attempt in range(3):
+            started = False
+            try:
+                async for item in (_anthropic if p["kind"] == "anthropic" else _openai)(p, messages, tools):
+                    started = True
+                    yield item
+                return
+            except RuntimeError as exc:
+                last_error = exc
+                if started:
+                    raise
+                transient = bool(re.search(r"\b(429|5\d\d)\b", str(exc)))
+                if transient and attempt < 2:
+                    await asyncio.sleep(3 * 2 ** attempt)
+                    continue
+                if provider_index + 1 < len(providers):
+                    print("Primary model unavailable before output; trying configured fallback:", type(exc).__name__)
+                    break
+                raise
+    if last_error:
+        raise last_error
+    raise RuntimeError("No model provider could be selected.")
 
 async def _openai(p, messages, tools):
     body = {"model": p["model"], "messages": messages, "stream": True}
