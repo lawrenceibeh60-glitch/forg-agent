@@ -2,6 +2,19 @@
 
 Forge is a streaming, tool-using AI workspace with configurable OpenAI-compatible / Anthropic providers, GitHub and Render integrations, reference-image input, per-session workspaces, task checkpoints, and an opt-in model fallback.
 
+## Adaptive Agent Engine v2
+
+Forge now includes a task-aware runtime layer intended to make the configured model more effective at real engineering work instead of merely exposing a large flat tool list.
+
+- **Adaptive tool routing:** selects a focused, relevant set of tool schemas per cycle while retaining essential engineering tools. This reduces schema overload; it is a ranking layer, not a permission system.
+- **Tool discovery:** `tool_catalog` searches the full registered built-in tool catalog when a needed capability is not present in the current selection. Connected MCP tools are surfaced when relevant.
+- **Workspace reconnaissance:** engineering tasks receive a bounded, secret-safe file index and key project manifests before the model starts acting. This is not a substitute for reading relevant source files.
+- **Architecture navigation:** `project_map` reports manifests, test files, directories, and Python symbols; `find_symbol` locates definitions; `find_references` finds usages; `dependency_graph` estimates local module dependencies.
+- **Evidence loop:** system instructions explicitly require inspect → implement → test → inspect output → repair → retest → review, with honest reporting when execution is blocked.
+- **Purpose routing:** engineering tasks use the coding profile, research tasks use the review profile, and ordinary conversation uses the general profile. Task-specific profiles activate only when fully configured.
+
+These changes do not enlarge the underlying language model or create a new neural network. They improve how Forge supplies context, discovers capabilities, and uses tool feedback. Results still depend on the configured model, its context/tool-call quality, sandbox availability, and connected services.
+
 ## Runtime design
 
 - **Primary model:** configured in Settings, or from `XKIRO_API_KEY`, `XKIRO_BASE_URL`, and `XKIRO_MODEL`.
