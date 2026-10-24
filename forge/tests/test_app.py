@@ -134,6 +134,36 @@ def test_eval_run_requires_explicit_token_cost_confirmation():
     assert "token-cost warning" in response.json()["error"]
 
 
+def test_interrupted_tool_batch_is_repaired_without_claiming_success():
+    messages = [
+        {"role": "system", "content": "system"},
+        {"role": "assistant", "tool_calls": [
+            {"id": "call-a", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
+            {"id": "call-b", "type": "function", "function": {"name": "run_tests", "arguments": "{}"}},
+        ]},
+        {"role": "tool", "tool_call_id": "call-a", "content": "file contents"},
+    ]
+    repaired, changed = app._repair_pending_tool_calls(messages)
+    assert changed is True
+    assert [m["tool_call_id"] for m in repaired if m.get("role") == "tool"] == ["call-a", "call-b"]
+    synthetic = repaired[-1]["content"]
+    assert "outcome is unknown" in synthetic
+    assert "Do not assume it succeeded or failed" in synthetic
+
+
+def test_completed_tool_batch_is_not_rewritten():
+    messages = [
+        {"role": "assistant", "tool_calls": [
+            {"id": "call-a", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
+        ]},
+        {"role": "tool", "tool_call_id": "call-a", "content": "ok"},
+        {"role": "assistant", "content": "finished"},
+    ]
+    repaired, changed = app._repair_pending_tool_calls(messages)
+    assert changed is False
+    assert repaired == messages
+
+
 def test_load_prefers_shared_conversation_storage(monkeypatch, tmp_path):
     messages = [{"role": "system", "content": "persisted"}, {"role": "user", "content": "hello"}]
     monkeypatch.setattr(app.tasks, "load_session", lambda sid: messages if sid == "session-shared" else None)
