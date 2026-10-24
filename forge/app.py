@@ -85,6 +85,7 @@ class Req(BaseModel):
     session: str | None = None
     message: str
     auto: bool = False
+    images: list[str] = []
 
 class Appr(BaseModel):
     id: str
@@ -94,7 +95,21 @@ class Appr(BaseModel):
 async def chat(req: Req):
     sid = req.session or uuid.uuid4().hex
     msgs = load(sid); msgs[0]["content"] = system()
-    msgs.append({"role": "user", "content": req.message})
+    user_content = req.message
+    if req.images:
+        if len(req.images) > 4:
+            return JSONResponse({"error": "Attach up to 4 reference images per message."}, status_code=400)
+        parts = [{"type": "text", "text": req.message}]
+        total = 0
+        for image_data in req.images:
+            if not isinstance(image_data, str) or not re.fullmatch(r"data:image/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+", image_data):
+                return JSONResponse({"error": "One image has an unsupported format. Use PNG, JPEG, WEBP, or GIF."}, status_code=400)
+            total += len(image_data)
+            if total > 8_000_000:
+                return JSONResponse({"error": "Reference images are too large. Please use smaller images (8 MB total maximum)."}, status_code=413)
+            parts.append({"type": "image_url", "image_url": {"url": image_data}})
+        user_content = parts
+    msgs.append({"role": "user", "content": user_content})
 
     async def run():
         yield sse("session", {"id": sid})
