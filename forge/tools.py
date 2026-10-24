@@ -39,7 +39,10 @@ def sh(cmd, cwd=None, timeout=120):
         raise ValueError("command working directory escapes the active workspace")
     if os.getenv("ALLOW_SHELL", "0") != "1":
         return "command execution is disabled by policy (ALLOW_SHELL=0)"
-    if os.getenv("SANDBOX_RENDER", "0") == "1":
+    if os.getenv("SANDBOX_VERCEL", "0") == "1":
+        from vercel_sandbox import run as vercel_sandbox_run
+        output = vercel_sandbox_run(cmd, cwd, timeout)
+    elif os.getenv("SANDBOX_RENDER", "0") == "1":
         from render_sandbox import run as render_sandbox_run
         output = render_sandbox_run(cmd, cwd, timeout)
     elif os.getenv("SANDBOX_DOCKER", "0") == "1":
