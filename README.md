@@ -13,6 +13,30 @@ Forge is a streaming, tool-using AI workspace with configurable OpenAI-compatibl
 - **Sandbox:** command execution uses Render-managed, ephemeral sandboxes when `SANDBOX_RENDER=1` and Render credentials are configured. The web service itself never executes arbitrary project commands in this mode. Workspace sync excludes environment files, keys, git metadata, and dependency caches; output sync is size-limited and never deletes host files. Outbound network is disabled by default (`SANDBOX_NETWORK=0`). Render Sandboxes are early access and must be enabled for the workspace. Provisioning failures fail closed without falling back to the host. Keep `SANDBOX_ALLOW_HOST_EXECUTION=0` in public deployments.
 - **Safety boundary:** the Docker runner drops Linux capabilities, uses no-new-privileges, caps memory/CPU/processes, and defaults to no network. Workspace file edits remain available when shell execution is disabled.
 
+## Project intelligence and quality tools
+
+Forge includes a session-scoped Project Brain panel in the sidebar:
+
+- **Workspace map:** lists safe project files, size/language counts, and Python class/function symbols. It skips secrets, symlinks, VCS metadata, dependency caches, and common build folders.
+- **Project search:** searches text files with file/line references, capped results, and size limits.
+- **Project memory:** stores explicit project decisions, architecture notes, facts, preferences, TODOs, and lessons from failures in SQLite, scoped to the chat session. It rejects likely credential-shaped content. Do not store secrets or personal sensitive information.
+- **Security review:** performs a lightweight heuristic scan for suspicious hard-coded credentials, disabled TLS verification, unsafe pickle deserialization, shell-enabled subprocesses, and debug servers. It is a review aid, not a security certification.
+- **Operations overview:** reports model/fallback configuration, integration presence, task storage health, sandbox readiness, and key safety settings without returning secret values.
+- **Evaluation catalog:** documents behavioral regression targets. This endpoint is a catalog, not a claim that the model has passed live evaluations.
+
+New endpoints:
+
+- \`GET /api/brain/map?sid=<session>\`
+- \`GET /api/brain/search?sid=<session>&q=<query>\`
+- \`GET /api/brain/memory?sid=<session>\`
+- \`POST /api/brain/memory\` with \`session\`, \`kind\`, \`title\`, \`body\`
+- \`DELETE /api/brain/memory/<id>?sid=<session>\`
+- \`GET /api/security/report?sid=<session>\`
+- \`GET /api/ops/overview\`
+- \`GET /api/evals/catalog\`
+
+The intelligence database defaults to the same SQLite file as task checkpoints. For durable memory across deploys, configure \`TASK_DB_PATH\` on persistent storage. Project memory is not automatically inferred from model output; save only confirmed, useful decisions.
+
 ## Environment variables
 
 | Variable | Purpose |
