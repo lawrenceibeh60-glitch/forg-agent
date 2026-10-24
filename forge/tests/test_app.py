@@ -1,3 +1,4 @@
+import asyncio
 import io
 import time
 import zipfile
@@ -133,8 +134,7 @@ def test_eval_run_requires_explicit_token_cost_confirmation():
     assert "token-cost warning" in response.json()["error"]
 
 
-@pytest.mark.asyncio
-async def test_task_resume_continues_the_same_persisted_task(monkeypatch):
+def test_task_resume_continues_the_same_persisted_task(monkeypatch):
     original = {
         "id": "task-resume-123",
         "session_id": "test-session",
@@ -152,7 +152,7 @@ async def test_task_resume_continues_the_same_persisted_task(monkeypatch):
         return request
 
     monkeypatch.setattr(app, "chat", capture_resume)
-    request = await app.task_resume(original["id"], app.ResumeReq())
+    request = asyncio.run(app.task_resume(original["id"], app.ResumeReq()))
 
     assert request.session == original["session_id"]
     assert request.task_id == original["id"]
@@ -160,9 +160,8 @@ async def test_task_resume_continues_the_same_persisted_task(monkeypatch):
     assert "Client disconnected" in request.message
 
 
-@pytest.mark.asyncio
-async def test_task_resume_rejects_completed_tasks(monkeypatch):
+def test_task_resume_rejects_completed_tasks(monkeypatch):
     original = {"id": "task-done", "status": "completed"}
     monkeypatch.setattr(app.tasks, "get", lambda task_id: original)
-    response = await app.task_resume(original["id"], app.ResumeReq())
+    response = asyncio.run(app.task_resume(original["id"], app.ResumeReq()))
     assert response.status_code == 409
