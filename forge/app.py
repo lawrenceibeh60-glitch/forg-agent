@@ -200,8 +200,9 @@ async def chat(req: Req):
                 tools.use(sid)
                 await compact(msgs)
                 m = None
+                turn_text = []
                 async for kind, val in llm.stream(msgs, schemas()):
-                    if kind == "text": yield sse("delta", {"text": val})
+                    if kind == "text": turn_text.append(val)
                     else: m = val
                 msgs.append({k: v for k, v in m.items() if v is not None})
                 calls = m.get("tool_calls") or []
@@ -216,6 +217,10 @@ async def chat(req: Req):
                         yield sse("progress", {"text": "Reviewing whether the original request is actually complete."})
                         msgs.append({"role": "user", "content": "[Completion review] Compare the original request with everything completed so far. Do not merely repeat your previous answer. If meaningful requested steps remain and you can safely make progress, continue using tools now. Check results and recover from errors. If the task is complete, or a genuine external blocker remains, provide the final answer with concrete evidence and limitations. Do not invent work or loop pointlessly."})
                         continue
+                    # Only render the answer from the accepted final cycle. Earlier
+                    # no-tool responses can be internal completion-review drafts.
+                    for text_chunk in turn_text:
+                        yield sse("delta", {"text": text_chunk})
                     tasks.update(task_id, status="completed", current_step="Final answer delivered", checkpoint={"phase": "completed", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs), "verified": bool(verified)})
                     break
                 tasks.update(task_id, current_step=f"Processing {len(calls)} tool call(s)", checkpoint={"phase": "tool_execution", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs)})
