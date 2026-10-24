@@ -16,15 +16,31 @@ PRESETS = {
 }
 
 def load():
-    if PF.exists(): return json.loads(PF.read_text())
-    d = {"active": None, "providers": []}
-    # Prefer the current xKiro variable names; retain legacy KIRO_* compatibility.
+    # Environment configuration must remain usable even when the app has already
+    # created a providers.json file (for example, on an earlier boot without a key).
+    if PF.exists():
+        d = json.loads(PF.read_text())
+    else:
+        d = {"active": None, "providers": []}
+
+    # Prefer current xKiro variable names; retain legacy KIRO_* compatibility.
     xkiro_key = os.getenv("XKIRO_API_KEY") or os.getenv("KIRO_API_KEY")
-    if xkiro_key:
-        d["providers"].append({"id": "xkiro", "name": "xKiro",
-                               "base_url": os.getenv("XKIRO_BASE_URL") or os.getenv("KIRO_BASE_URL") or "https://api.xkiro.com/v1",
-                               "kind": "openai", "key": xkiro_key,
-                               "model": os.getenv("XKIRO_MODEL") or os.getenv("KIRO_MODEL") or "mistralai/devstral-medium"})
+    providers = d.setdefault("providers", [])
+    active_id = d.get("active")
+    active_exists = any(p.get("id") == active_id for p in providers)
+
+    # Seed xKiro from Render environment variables if it has not already been
+    # saved in Settings. Do not override a valid provider the user selected.
+    if xkiro_key and not any(p.get("id") == "xkiro" for p in providers):
+        providers.append({
+            "id": "xkiro", "name": "xKiro",
+            "base_url": os.getenv("XKIRO_BASE_URL") or os.getenv("KIRO_BASE_URL") or "https://api.xkiro.com/v1",
+            "kind": "openai", "key": xkiro_key,
+            "model": os.getenv("XKIRO_MODEL") or os.getenv("KIRO_MODEL") or "mistralai/devstral-medium"
+        })
+        if not active_exists:
+            d["active"] = "xkiro"
+    elif not active_exists and xkiro_key:
         d["active"] = "xkiro"
     return d
 
