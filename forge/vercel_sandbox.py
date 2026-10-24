@@ -106,7 +106,6 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
                 execution_time_limit=limit,
                 persistent=True,
                 network_policy=network_policy,
-                region=region,
                 tags={"app": "forge-agent", "purpose": "workspace"},
             )
         mkdir = await box.run_process("mkdir", ["-p", "/workspace"], capture_output=True, check=False)
