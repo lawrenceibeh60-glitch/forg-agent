@@ -155,6 +155,7 @@ else if(d.type==='approval'){const el=tl[d.id];el.open=true;const b=document.cre
 b.innerHTML=`<b style="flex:1;font-weight:500">Allow this action?</b><button class="btn pri">Allow</button><button class="btn">Deny</button>`;
 const[y,n]=b.querySelectorAll('button');y.onclick=()=>{post('/api/approve',{id:d.id,ok:true});b.remove()};n.onclick=()=>{post('/api/approve',{id:d.id,ok:false});b.remove()};el.appendChild(b)}
 else if(d.type==='tool_result'){const el=tl[d.id];el.querySelector('.spin').outerHTML=ico('check','ok');el.insertAdjacentHTML('beforeend',`<pre>${fmt(d.output)}</pre>`)}
+else if(d.type==='done'){status.textContent='Work pass complete · review the result and verification notes above.'}
 else if(d.type==='error')bot.insertAdjacentHTML('beforeend',`<p style="color:var(--del)">${esc(d.error)}</p>`);
 feed.scrollTop=feed.scrollHeight}}}catch(x){if(x.name!=='AbortError')bot.insertAdjacentHTML('beforeend',`<p style="color:var(--del)">${esc(x.message||'Request failed')}</p>`)}
 busy=false;$('#go').innerHTML=ico('up');refresh()};
