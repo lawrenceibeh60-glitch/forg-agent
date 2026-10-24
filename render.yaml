@@ -22,7 +22,20 @@ services:
         sync: false
       - key: RENDER_API_KEY
         sync: false
+      # Public Render must not execute arbitrary commands on the host.
       - key: ALLOW_SHELL
-        value: "1"
+        value: "0"
+      - key: SANDBOX_DOCKER
+        value: "0"
+      - key: SANDBOX_ALLOW_HOST_EXECUTION
+        value: "0"
+      - key: OAUTH_ENCRYPTION_SECRET
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_REDIRECT_URI
+        sync: false
       - key: WORKSPACE
         value: workspace

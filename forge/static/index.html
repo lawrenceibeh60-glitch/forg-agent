@@ -95,6 +95,7 @@ dialog input,dialog select,dialog textarea{width:100%;margin:4px 0;padding:9px 1
 <h4>MCP servers</h4><div id="mcp"></div>
 <textarea id="mcfg" rows="3" placeholder='Paste MCP config JSON, e.g. {"mcpServers":{"fs":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","."]}}}'></textarea>
 <button class="btn pri" onclick="addMcp()">Connect</button>
+<h4>AI personality &amp; instructions</h4><p style="font-size:12px;color:var(--mute);margin:4px 0 8px">Add project-specific guidance. Forge keeps its core safety and engineering rules.</p><textarea id="custom-prompt" rows="7" maxlength="12000" placeholder="Tell Forge how you want it to think, collaborate, and work on your projects."></textarea><button class="btn pri" onclick="savePrompt()">Save AI instructions</button><span id="prompt-status" style="font-size:12px;color:var(--mute);margin-left:8px"></span>
 <h4>Tools <span id="tcount" style="font-weight:400"></span></h4><input id="tq" placeholder="Search tools" oninput="drawT()"><div id="tlist" style="max-height:260px;overflow:auto"></div>
 <h4>Connections</h4><div id="account-connections"></div><div id="st"></div></dialog>
 <script>
@@ -149,8 +150,10 @@ async function openSet(){const p=await j('/api/providers');
 $('#pre').innerHTML=Object.keys(p.presets).map(k=>`<option>${k}</option>`).join('');
 $('#plist').innerHTML=p.providers.map(x=>`<div class="row"><i class="dot ${x.id===p.active?'on':''}"></i><b>${esc(x.name)}</b><button class="btn" onclick="useP('${x.id}')">Use</button><button class="btn" onclick="delP('${x.id}')">Remove</button></div>`).join('')||'<div class="row" style="color:var(--mute)">No models yet</div>';
 const m=await j('/api/mcp');$('#mcp').innerHTML=m.servers.map(s=>`<div class="row"><i class="dot ${s.connected?'on':''}"></i><b>${esc(s.name)} · ${s.tools} tools</b><button class="btn" onclick="rmMcp('${s.name}')">Remove</button></div>`).join('')||'<div class="row" style="color:var(--mute)">None connected</div>';
-loadT();if(!$('#set').open)$('#set').showModal()}
+loadT();loadPrompt();if(!$('#set').open)$('#set').showModal()}
 async function loadT(){TL=await j('/api/tools');TL.forEach(t=>CAT[t.name]=t.cat);drawT()}
+async function loadPrompt(){try{$('#custom-prompt').value=(await j('/api/settings/prompt')).prompt||''}catch{}}
+async function savePrompt(){const s=$('#prompt-status');s.textContent='Saving…';try{await j('/api/settings/prompt',{method:'PUT',headers:H,body:JSON.stringify({prompt:$('#custom-prompt').value})});s.textContent='Saved'}catch(e){s.textContent='Save failed'}}
 function drawT(){const q=($('#tq').value||'').toLowerCase(),L=TL.filter(t=>(t.name+t.desc).toLowerCase().includes(q));$('#tcount').textContent=`(${TL.filter(t=>t.enabled).length}/${TL.length} on)`;
 $('#tlist').innerHTML=L.map(t=>`<label class="row" title="${esc(t.desc)}">${ico(t.cat)}<b>${esc(t.name)}</b><input type="checkbox" style="width:auto;margin:0" ${t.enabled?'checked':''} onchange="togT('${t.name}',this.checked)"></label>`).join('')}
 async function togT(n,e){await post('/api/tools/toggle',{name:n,enabled:e});TL.find(t=>t.name===n).enabled=e;$('#tcount').textContent=`(${TL.filter(t=>t.enabled).length}/${TL.length} on)`}
