@@ -10,5 +10,5 @@ mcp==1.9.4
 cryptography==44.0.2
 # Official Render SDK for managed sandbox execution.
 render>=1.4,<2
-# Official Vercel Python SDK for isolated sandbox compute.
-vercel
+# Official Vercel Sandbox SDK (the package providing vercel.sandbox).
+vercel-sandbox==0.10.0
