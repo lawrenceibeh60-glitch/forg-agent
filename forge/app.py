@@ -229,11 +229,11 @@ async def chat(req: Req):
                                      if name not in initial_files or initial_files[name] != stamp][:12]
                     if changed_files:
                         from urllib.parse import quote
-                        links = ["\\n\\n**Files ready to download**"]
+                        links = ["\n\n**Files ready to download**"]
                         for name in changed_files:
                             links.append(f"- [Download `{name}`](/api/sandbox/download?sid={sid}&path={quote(name, safe='')})")
                         links.append(f"- [Download the workspace as a ZIP](/api/sandbox.zip?sid={sid})")
-                        addition = "\\n".join(links)
+                        addition = "\n".join(links)
                         if msgs and msgs[-1].get("role") == "assistant" and isinstance(msgs[-1].get("content"), str):
                             msgs[-1]["content"] += addition
                         yield sse("delta", {"text": addition})
