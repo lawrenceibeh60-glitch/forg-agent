@@ -114,9 +114,13 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
                 image=image,
                 execution_time_limit=limit,
                 persistent=True,
+                region=region,
                 network_policy=network_policy,
                 tags={"app": "forge-agent", "purpose": "workspace"},
             )
+        # Persisted sandboxes may predate the current network setting; apply it
+        # to the live session on every run rather than trusting stale configuration.
+        await box.update(network_policy=network_policy)
         mkdir = await _run_process(box, "mkdir", ["-p", "/workspace"], capture_output=True, check=False)
         if getattr(mkdir, "returncode", getattr(mkdir, "exit_code", 1)) != 0:
             return "Vercel Sandbox failed to prepare /workspace: " + str(getattr(mkdir, "stderr", ""))[:1000]
