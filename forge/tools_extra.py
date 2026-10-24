@@ -138,13 +138,14 @@ def python_eval(code): return run("python3 -c " + __import__("shlex").quote(code
 @tool("ipython_eval", "Run a Python snippet in IPython inside the isolated sandbox when available; otherwise clearly report and use standard Python.", {"code": ("string", "Python snippet")})
 def ipython_eval(code):
     encoded = base64.b64encode(code.encode("utf-8")).decode("ascii")
+    python_payload = 'import base64; exec(compile(base64.b64decode("' + encoded + '"), "<forge-ipython>", "exec"))'
     command = (
         "if command -v ipython >/dev/null 2>&1; then "
-        + "ipython -c \\"$(printf %s " + encoded + " | base64 -d)\\"; "
+        + "ipython -c '" + python_payload + "'; "
         + "elif python3 -c 'import IPython' >/dev/null 2>&1; then "
-        + "python3 -c \\"import base64; from IPython.core.interactiveshell import InteractiveShell; shell=InteractiveShell.instance(); shell.run_cell(base64.b64decode('" + encoded + "').decode())\\"; "
-        + "else printf '%s\\\\n' 'IPython is not installed in this sandbox image; executing the snippet with standard Python instead.'; "
-        + "python3 -c \\"import base64; exec(compile(base64.b64decode('" + encoded + "'), '<forge-ipython>', 'exec'))\\"; fi"
+        + "python3 -c 'import base64; from IPython.core.interactiveshell import InteractiveShell; shell=InteractiveShell.instance(); shell.run_cell(base64.b64decode(\\"" + encoded + "\\").decode())'; "
+        + "else printf '%s\\n' 'IPython is not installed in this sandbox image; executing the snippet with standard Python instead.'; "
+        + "python3 -c '" + python_payload + "'; fi"
     )
     return run(command, ".", 120)
 
