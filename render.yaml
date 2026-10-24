@@ -38,6 +38,10 @@ services:
         value: deny-all
       - key: SANDBOX_COMMAND_TIMEOUT
         value: "120"
+      # Optional named Render sandbox snapshot with preinstalled tools such as IPython.
+      # Leave unset until a snapshot has been created in this workspace.
+      - key: SANDBOX_SNAPSHOT_NAME
+        sync: false
       - key: SANDBOX_ALLOW_HOST_EXECUTION
         value: "0"
       - key: OAUTH_ENCRYPTION_SECRET

@@ -132,8 +132,26 @@ def run_tests(cwd="."):
 def lint(cwd="."):
     return run("ruff check ." if any(safe(cwd).glob("*.py")) or (safe(cwd) / "pyproject.toml").exists() else "npx --no-install eslint .", cwd, 180)
 
-@tool("python_eval", "Run a Python snippet for quick computation/experiments. Requires the isolated sandbox runner; refuses host execution by default.", {"code": ("string", "")})
-def python_eval(code): return run(f"python3 -c {json.dumps(code)}", ".", 60)
+@tool("python_eval", "Run a Python snippet for quick computation/experiments in the configured isolated sandbox.", {"code": ("string", "")})
+def python_eval(code): return run("python3 -c " + __import__("shlex").quote(code), ".", 60)
+
+@tool("ipython_eval", "Run a Python snippet in IPython inside the isolated sandbox when available; otherwise clearly report and use standard Python.", {"code": ("string", "Python snippet")})
+def ipython_eval(code):
+    encoded = base64.b64encode(code.encode("utf-8")).decode("ascii")
+    python_payload = "import base64; exec(compile(base64.b64decode('" + encoded + "'), '<forge-ipython>', 'exec'))"
+    quote = __import__("shlex").quote
+    command = (
+        "if command -v ipython >/dev/null 2>&1; then "
+        + "ipython -c " + quote(python_payload) + "; "
+        + "else printf '%s\\n' 'IPython is not installed in this sandbox image; executing the snippet with standard Python instead.'; "
+        + "python3 -c " + quote(python_payload) + "; fi"
+    )
+    return run(command, ".", 120)
+
+@tool("sandbox_runtime_info", "Inspect the isolated sandbox OS, Python version, and whether IPython is installed.", {})
+def sandbox_runtime_info():
+    command = "cat /etc/os-release 2>/dev/null | head -5; python3 --version; if command -v ipython >/dev/null 2>&1; then ipython --version; elif python3 -c 'import IPython' >/dev/null 2>&1; then python3 -c 'import IPython; print(IPython.__version__)'; else echo 'IPython: not installed'; fi"
+    return run(command, ".", 30)
 
 @tool("node_eval", "Run a JavaScript snippet with Node inside the configured isolated sandbox; refuses host execution by default.", {"code": ("string", "")})
 def node_eval(code): return run(f"node -e {json.dumps(code)}", ".", 60)

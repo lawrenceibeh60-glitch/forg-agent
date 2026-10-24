@@ -7,7 +7,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import re, shutil, llm, tools, tools_extra, tools_ops, connections, tasks
+import re, shutil, zipfile, mimetypes, llm, tools, tools_extra, tools_ops, connections, tasks
+from starlette.background import BackgroundTask
 from mcp_client import mcp
 
 from prompts import SYSTEM
@@ -189,6 +190,8 @@ async def chat(req: Req):
     async def run():
         yield sse("session", {"id": sid, "task_id": task_id})
         yield sse("task", {"id": task_id, "status": "running"})
+        workspace_root = tools.use(sid).resolve()
+        initial_files = _downloadable_workspace_files(workspace_root)
         calls = []
         task_status = "completed"
         try:
@@ -221,7 +224,20 @@ async def chat(req: Req):
                     # no-tool responses can be internal completion-review drafts.
                     for text_chunk in turn_text:
                         yield sse("delta", {"text": text_chunk})
-                    tasks.update(task_id, status="completed", current_step="Final answer delivered", checkpoint={"phase": "completed", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs), "verified": bool(verified)})
+                    current_files = _downloadable_workspace_files(workspace_root)
+                    changed_files = [name for name, stamp in current_files.items()
+                                     if name not in initial_files or initial_files[name] != stamp][:12]
+                    if changed_files:
+                        from urllib.parse import quote
+                        links = ["\n\n**Files ready to download**"]
+                        for name in changed_files:
+                            links.append(f"- [Download `{name}`](/api/sandbox/download?sid={sid}&path={quote(name, safe='')})")
+                        links.append(f"- [Download the workspace as a ZIP](/api/sandbox.zip?sid={sid})")
+                        addition = "\n".join(links)
+                        if msgs and msgs[-1].get("role") == "assistant" and isinstance(msgs[-1].get("content"), str):
+                            msgs[-1]["content"] += addition
+                        yield sse("delta", {"text": addition})
+                    tasks.update(task_id, status="completed", current_step="Final answer delivered", checkpoint={"phase": "completed", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs), "verified": bool(verified), "downloadable_files": changed_files})
                     break
                 tasks.update(task_id, current_step=f"Processing {len(calls)} tool call(s)", checkpoint={"phase": "tool_execution", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs)})
                 for c in calls:
@@ -580,9 +596,78 @@ def files(sid: str = ""):
     if not sid: return {"files": ["(empty)"]}
     tools.use(sid); return {"files": tools.list_files().split("\n")}
 
+def _safe_download_path(root: Path, relative: str) -> Path:
+    target = (root / relative).resolve()
+    if root not in target.parents or not target.is_file():
+        raise FileNotFoundError("File not found in this chat workspace.")
+    rel = target.relative_to(root)
+    blocked_dirs = {".git", ".venv", "venv", "node_modules", "__pycache__"}
+    blocked_names = {".env", ".env.local", ".env.production", ".netrc", "id_rsa", "id_ed25519"}
+    if blocked_dirs.intersection(rel.parts) or target.name in blocked_names or target.name.startswith(".env.") or target.suffix.lower() in {".pem", ".key", ".p12", ".pfx"}:
+        raise PermissionError("This file type or path is not downloadable.")
+    return target
+
+def _downloadable_workspace_files(root: Path):
+    found = {}
+    blocked_dirs = {".git", ".venv", "venv", "node_modules", "__pycache__"}
+    blocked_names = {".env", ".env.local", ".env.production", ".netrc", "id_rsa", "id_ed25519"}
+    for path in root.rglob("*"):
+        if path.is_symlink() or not path.is_file():
+            continue
+        rel = path.relative_to(root)
+        if blocked_dirs.intersection(rel.parts) or path.name in blocked_names or path.name.startswith(".env.") or path.suffix.lower() in {".pem", ".key", ".p12", ".pfx"}:
+            continue
+        try:
+            st = path.stat()
+            found[rel.as_posix()] = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            continue
+    return found
+
+def _cleanup_download(path: str):
+    try:
+        Path(path).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+@app.get("/api/sandbox/download")
+def sandbox_download(sid: str, path: str):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid or ""):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
+    try:
+        root = tools.use(sid).resolve()
+        target = _safe_download_path(root, path)
+    except FileNotFoundError:
+        return JSONResponse({"error": "file not found in this chat workspace"}, status_code=404)
+    except PermissionError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=403)
+    media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+    return FileResponse(target, media_type=media_type, filename=target.name,
+                        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+
 @app.get("/api/sandbox.zip")
 def sandbox_zip(sid: str):
-    r = tools.use(sid); return FileResponse(shutil.make_archive(f"/tmp/forge-{r.name}", "zip", r), filename="sandbox.zip")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid or ""):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
+    root = tools.use(sid).resolve()
+    files = _downloadable_workspace_files(root)
+    if not files:
+        return JSONResponse({"error": "this chat workspace has no downloadable files yet"}, status_code=404)
+    handle, archive_path = tempfile.mkstemp(prefix="forge-workspace-", suffix=".zip")
+    os.close(handle)
+    try:
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for relative in sorted(files):
+                archive.write(_safe_download_path(root, relative), arcname=relative)
+        if Path(archive_path).stat().st_size == 0:
+            _cleanup_download(archive_path)
+            return JSONResponse({"error": "the workspace archive is empty"}, status_code=500)
+        return FileResponse(archive_path, media_type="application/zip", filename="forge-workspace.zip",
+                            background=BackgroundTask(_cleanup_download, archive_path),
+                            headers={"Cache-Control": "no-store"})
+    except Exception:
+        _cleanup_download(archive_path)
+        raise
 
 @app.get("/api/sandbox/preview")
 def sandbox_preview(sid: str, path: str = "index.html"):
