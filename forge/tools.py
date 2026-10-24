@@ -32,14 +32,17 @@ def safe(p):
     return full
 
 def sh(cmd, cwd=None, timeout=120):
-    """Execute in an explicitly enabled, resource-limited Docker sandbox by default."""
+    """Execute only in an isolated remote Render sandbox or explicitly configured Docker."""
     root = ROOT.get().resolve()
     cwd = (cwd or ROOT.get()).resolve()
     if root != cwd and root not in cwd.parents:
         raise ValueError("command working directory escapes the active workspace")
     if os.getenv("ALLOW_SHELL", "0") != "1":
         return "command execution is disabled by policy (ALLOW_SHELL=0)"
-    if os.getenv("SANDBOX_DOCKER", "0") == "1":
+    if os.getenv("SANDBOX_RENDER", "0") == "1":
+        from render_sandbox import run as render_sandbox_run
+        output = render_sandbox_run(cmd, cwd, timeout)
+    elif os.getenv("SANDBOX_DOCKER", "0") == "1":
         rel = os.path.relpath(cwd, root)
         image = os.getenv("SANDBOX_IMAGE", "nikolaik/python-nodejs:python3.12-nodejs20")
         network = "bridge" if os.getenv("SANDBOX_NETWORK", "0") == "1" else "none"
@@ -58,19 +61,23 @@ def sh(cmd, cwd=None, timeout=120):
             r = subprocess.run(argv, cwd=root, capture_output=True, text=True, timeout=timeout)
         except FileNotFoundError:
             return "Docker sandbox requested but Docker is unavailable; refusing to execute on the host."
+        output = (r.stdout + r.stderr).strip() or "(no output)"
+        output += f"\n[exit {r.returncode}]"
     elif os.getenv("SANDBOX_ALLOW_HOST_EXECUTION", "0") == "1":
-        # Explicit development-only escape hatch. Never enable on a public deployment.
         r = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True,
                            timeout=timeout, env={"PATH": os.getenv("PATH", "/usr/bin:/bin"),
                                                 "HOME": str(root), "LANG": "C.UTF-8",
                                                 "WORKSPACE": str(root)})
+        output = (r.stdout + r.stderr).strip() or "(no output)"
+        output += f"\n[exit {r.returncode}]"
     else:
-        return ("no isolated command runner is configured. Enable SANDBOX_DOCKER=1 on a host "
-                "with Docker available; host-shell fallback is disabled.")
-    out = r.stdout + r.stderr
+        return ("no isolated command runner is configured. Enable SANDBOX_RENDER=1 with "
+                "RENDER_API_KEY and RENDER_WORKSPACE_ID, or use SANDBOX_DOCKER=1 on a Docker host. "
+                "Host-shell fallback is disabled.")
     token = connections.get_access_token("github") or os.getenv("GITHUB_TOKEN", "")
-    if token: out = out.replace(token, "***")
-    return (out.strip() or "(no output)")[-6000:] + f"\n[exit {r.returncode}]"
+    if token:
+        output = output.replace(token, "***")
+    return output[-6000:]
 
 # ---------- filesystem & code ----------
 @tool("list_files", "List files in the workspace (recursive, skips .git/node_modules).", {"path?": ("string", "subdirectory")})

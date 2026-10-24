@@ -10,7 +10,7 @@ Forge is a streaming, tool-using AI workspace with configurable OpenAI-compatibl
 - **Conversation history:** `FORGE_SESSION_DIR` selects the directory for session JSON. Writes are atomic and session IDs are validated.
 - **Reference images:** attach up to four PNG/JPEG/WEBP/GIF images. The configured model must support vision for image interpretation.
 - **Provider failover:** configure all of `FORGE_FALLBACK_API_KEY`, `FORGE_FALLBACK_BASE_URL`, and `FORGE_FALLBACK_MODEL` to opt in. Optional `FORGE_FALLBACK_KIND` is `openai` (default) or `anthropic`. Failover only occurs before the primary emits content; Forge never mixes partial answers from two providers.
-- **Sandbox:** shell execution is fail-closed. Public deployments should keep `SANDBOX_ALLOW_HOST_EXECUTION=0`; use a host with Docker to enable `ALLOW_SHELL=1` and `SANDBOX_DOCKER=1`. Network access in the Docker sandbox is off unless `SANDBOX_NETWORK=1` is explicitly configured. Render's ordinary hosted web service does not guarantee Docker-in-Docker support, so check `GET /api/sandbox/status` instead of assuming commands can run.
+- **Sandbox:** command execution uses Render-managed, ephemeral sandboxes when `SANDBOX_RENDER=1` and Render credentials are configured. The web service itself never executes arbitrary project commands in this mode. Workspace sync excludes environment files, keys, git metadata, and dependency caches; output sync is size-limited and never deletes host files. Outbound network is disabled by default (`SANDBOX_NETWORK=0`). Render Sandboxes are early access and must be enabled for the workspace. Provisioning failures fail closed without falling back to the host. Keep `SANDBOX_ALLOW_HOST_EXECUTION=0` in public deployments.
 - **Safety boundary:** the Docker runner drops Linux capabilities, uses no-new-privileges, caps memory/CPU/processes, and defaults to no network. Workspace file edits remain available when shell execution is disabled.
 
 ## Environment variables
@@ -28,8 +28,12 @@ Forge is a streaming, tool-using AI workspace with configurable OpenAI-compatibl
 | `TASK_DB_PATH` | SQLite checkpoint database path; default `data/tasks.sqlite3` |
 | `FORGE_SESSION_DIR` | Session history directory; default `data/sessions` |
 | `ALLOW_SHELL` | Must be `1` to enable any command runner |
-| `SANDBOX_DOCKER` | Must be `1` to use the Docker-isolated command runner |
-| `SANDBOX_NETWORK` | Opt-in network access from Docker jobs; default off |
+| `SANDBOX_DOCKER` | Must be `1` to use Docker isolation when Render-managed mode is off |
+| `SANDBOX_RENDER` | Use Render-managed ephemeral sandboxes when `1` |
+| `RENDER_WORKSPACE_ID` | Render workspace ID required by the managed sandbox SDK |
+| `SANDBOX_NETWORK` | Opt-in outbound network access from sandbox jobs; default off |
+| `SANDBOX_NETWORK_POLICY` | Render sandbox outbound policy; default `deny` |
+| `SANDBOX_COMMAND_TIMEOUT` | Maximum per-command runtime in seconds; default 120 |
 | `SANDBOX_ALLOW_HOST_EXECUTION` | Development-only host shell escape hatch; keep `0) on public deployments |
 | `APP_PASSWORD` | Optional app access password / encryption fallback |
 | `OAUTH_ENCRYPTION_SECRET` | Stable encryption secret for connected OAuth tokens |
