@@ -15,7 +15,7 @@ services:
       - key: XKIRO_BASE_URL
         value: https://api.xkiro.com/v1
       - key: XKIRO_MODEL
-        value: qwen/qwen3.5-plus
+        value: qwen/qwen3.8-omni-flash:free
       - key: APP_PASSWORD
         sync: false
       - key: GITHUB_TOKEN
