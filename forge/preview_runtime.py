@@ -137,24 +137,24 @@ def start_preview(session: str, root: Path, path: str = ".", command: str = "",
         with tempfile.TemporaryDirectory(prefix="forge-preview-") as stage:
             stage_root = Path(stage) / "workspace"
             stage_root.mkdir()
-            render_sandbox._stage(project, stage_root)
+            render_sandbox._stage(root, stage_root)
             api.copy_to(sandbox.id, str(stage_root), "/workspace")
+        cwd = "/workspace" if path == "." else "/workspace/" + project.relative_to(root).as_posix()
         if deps_command:
-            output, code = _events(api, sandbox.id, "cd /workspace && " + deps_command, 360)
+            output, code = _events(api, sandbox.id, "cd " + shlex.quote(cwd) + " && " + deps_command, 360)
             if code not in (0, None):
                 raise RuntimeError("dependency install failed (exit " + str(code) + "): " + output[-1800:])
         # Install the official Cloudflare tunnel binary only inside the disposable
         # sandbox; never install or execute project code on the Forge web service.
         tunnel_setup = (
-            "if command -v cloudflared >/dev/null 2>&1; then CF=$(command -v cloudflared); "
-            "else CF=/tmp/cloudflared; "
-            "curl -fsSL --max-time 90 https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o "$CF" "
-            "&& chmod 700 "$CF"; fi"
+            'if command -v cloudflared >/dev/null 2>&1; then CF=$(command -v cloudflared); '
+            'else CF=/tmp/cloudflared; '
+            'curl -fsSL --max-time 90 https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o "$CF" '
+            '&& chmod 700 "$CF"; fi'
         )
         output, code = _events(api, sandbox.id, tunnel_setup, 120)
         if code not in (0, None):
             raise RuntimeError("could not prepare HTTPS preview tunnel: " + output[-1200:])
-        cwd = "/workspace" if path == "." else "/workspace/" + project.relative_to(root).as_posix()
         shell = "cd " + shlex.quote(cwd) + " && exec " + start_command
         app_cmd = "nohup bash -lc " + shlex.quote(shell) + " >/tmp/forge-app.log 2>&1 </dev/null & echo $! >/tmp/forge-app.pid"
         output, code = _events(api, sandbox.id, app_cmd, 30)
