@@ -211,7 +211,7 @@ async def chat(req: Req):
                         yield sse("progress", {"text": "Checking the changes instead of stopping at the first implementation."})
                         msgs.append({"role": "user", "content": "[Required verification] You changed files but ran nothing to verify them. Do not finalize yet. Run relevant tests/linter/build or a safe smoke check, inspect the results, and fix failures. If execution is unavailable, inspect the diff and state exactly what remains unverified."})
                         continue
-                    if not completion_checked and turn < max_turns:
+                    if not completion_checked and turn < max_turns and (edited or any(item.get("role") == "tool" for item in msgs)):
                         completion_checked = True
                         yield sse("progress", {"text": "Reviewing whether the original request is actually complete."})
                         msgs.append({"role": "user", "content": "[Completion review] Compare the original request with everything completed so far. Do not merely repeat your previous answer. If meaningful requested steps remain and you can safely make progress, continue using tools now. Check results and recover from errors. If the task is complete, or a genuine external blocker remains, provide the final answer with concrete evidence and limitations. Do not invent work or loop pointlessly."})
