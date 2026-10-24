@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import re, shutil, zipfile, mimetypes, llm, tools, tools_extra, tools_ops, connections, tasks, orchestrator, agent_brain
+import re, shutil, zipfile, mimetypes, llm, tools, tools_extra, tools_ops, connections, tasks, orchestrator, agent_brain, preview_tools
 from starlette.background import BackgroundTask
 from mcp_client import mcp
 
