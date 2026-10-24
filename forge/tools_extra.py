@@ -15,6 +15,22 @@ def get(url, **k): return httpx.get(url, timeout=25, follow_redirects=True, head
 strip = lambda s: re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", s)).strip()
 O = ("string", "")
 
+@tool("tool_catalog", "Discover available Forge tools by capability when the current tool selection does not expose what you need. Returns matching tool names and descriptions; use the exact returned name in the next tool call.", {"query": ("string", "capability or task to search for"), "limit?": ("integer", "maximum matches, default 20")})
+def tool_catalog(query, limit=20):
+    import tools as registry
+    terms = [x for x in re.findall(r"[a-zA-Z0-9_]{2,}", query.lower()) if x not in {"the", "and", "for", "with", "from", "tool", "tools"}]
+    matches = []
+    for schema in registry.SCHEMAS:
+        fn = schema.get("function", {})
+        name, desc = fn.get("name", ""), fn.get("description", "")
+        haystack = (name + " " + desc).lower()
+        score = sum(4 if term in name.lower() else 1 for term in terms if term in haystack)
+        if score:
+            matches.append((score, name, desc))
+    matches.sort(key=lambda item: (-item[0], item[1]))
+    maximum = max(1, min(int(limit), 40))
+    return json.dumps([{"name": n, "description": d[:300]} for _, n, d in matches[:maximum]], ensure_ascii=False, indent=2) if matches else "No matching tools. Try a broader capability query."
+
 # ================= files =================
 @tool("glob_files", "Find files by glob pattern, e.g. **/*.py", {"pattern": ("string", "glob")})
 def glob_files(pattern): return "\n".join(sorted(rel(p) for p in WS.glob(pattern) if p.is_file())[:300]) or "none"
