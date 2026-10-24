@@ -414,8 +414,15 @@ async def chat(req: Req):
                             out = await asyncio.to_thread(tools.REG[name], **args)
                     except Exception as e:
                         out = f"Tool {name} failed: {type(e).__name__}: {e}."
-                    if agent_runtime.action_failed(str(out)) and not prior_failure:
+                    failure_class = agent_runtime.classify_failure(name, str(out))
+                    failed_result = agent_runtime.action_failed(str(out)) or agent_runtime.sandbox_blocker(str(out))
+                    if failed_result and not prior_failure:
                         action_failures[action_key] = str(out)[:1500]
+                        # Feed a compact, deterministic recovery policy into the next model cycle.
+                        # This changes the recovery strategy without bypassing approval or sandbox policy.
+                        msgs.append({"role": "user", "content": agent_runtime.recovery_instruction(
+                            failure_class, name, str(out)
+                        )})
                     if name in execution_tools and agent_runtime.sandbox_blocker(str(out)):
                         sandbox_failure_count += 1
                         sandbox_blocked = True
@@ -439,6 +446,8 @@ async def chat(req: Req):
                     checkpoint_fields = {"checkpoint": orchestrator.checkpoint("tool_result", turn=turn,
                         last_tool=name, last_tool_result=str(out)[:1500],
                         last_tool_risk=orchestrator.tool_risk(name),
+                        failure_class=failure_class if failed_result else "none",
+                        recovery_policy_applied=bool(failed_result and not prior_failure),
                         verification=bool(verified), verification_blocked=bool(verification_blocked),
                         tool_calls=sum(1 for m in msgs if m.get("role") == "tool"),
                         message_count=len(msgs))}
