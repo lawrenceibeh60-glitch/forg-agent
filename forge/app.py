@@ -760,6 +760,7 @@ class WorkflowRequest(BaseModel):
     session: str
     name: str
     steps: list[dict]
+    id: str | None = None
 
 @app.get("/api/workflows")
 def workflows_list(sid: str):
@@ -775,7 +776,7 @@ def workflows_save(body: WorkflowRequest):
     if not _valid_sid(body.session):
         return JSONResponse({"error": "invalid session id"}, status_code=400)
     try:
-        return {"ok": True, "workflow": forge_workflows.save(body.session, body.name, body.steps)}
+        return {"ok": True, "workflow": forge_workflows.save(body.session, body.name, body.steps, body.id)}
     except (ValueError, TypeError) as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
 
