@@ -427,9 +427,40 @@ def task_detail(task_id: str):
         return JSONResponse({"error": "task not found"}, status_code=404)
     return task
 
+class ResumeReq(BaseModel):
+    auto: bool = False
+
+
+@app.post("/api/tasks/{task_id}/resume")
+async def task_resume(task_id: str, body: ResumeReq):
+    task = tasks.get(task_id)
+    if not task:
+        return JSONResponse({"error": "task not found"}, status_code=404)
+    if task.get("status") in {"completed", "cancelled"}:
+        return JSONResponse({"error": f"Task is {task['status']} and cannot be resumed."}, status_code=409)
+    checkpoint = task.get("checkpoint") or {}
+    plan = task.get("plan") or []
+    completed = task.get("completed") or []
+    resume_message = (
+        "[Resume interrupted Forge task]\n"
+        f"Original goal: {task.get('goal', '')}\n"
+        f"Last checkpoint: {json.dumps(checkpoint, ensure_ascii=False)[:5000]}\n"
+        f"Plan: {json.dumps(plan, ensure_ascii=False)}\n"
+        f"Completed steps: {json.dumps(completed, ensure_ascii=False)}\n"
+        f"Last known step: {task.get('current_step', '')}\n"
+        f"Last error/blocker: {task.get('last_error', '')}\n\n"
+        "Continue the original goal using the saved conversation and checkpoint. "
+        "Inspect current files/state before repeating work. Preserve verified progress, "
+        "diagnose the last failure, and continue with the next safe useful step. "
+        "Do not claim the old task is complete unless you verify the remaining work."
+    )
+    return await chat(Req(session=task["session_id"], message=resume_message, auto=body.auto))
+
+
 @app.get("/api/sessions/{sid}/tasks")
 def session_tasks(sid: str, limit: int = 10):
     return {"tasks": tasks.list_for_session(sid, limit)}
+
 
 @app.get("/api/sessions")
 def sessions():
