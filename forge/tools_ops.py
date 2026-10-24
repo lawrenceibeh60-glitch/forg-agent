@@ -143,34 +143,44 @@ def sandbox_info():
     r = ROOT.get(); fs = [p for p in r.rglob("*") if p.is_file() and ".git" not in p.parts and ".forge" not in p.parts]
     return f"sandbox: {r.name}\nfiles: {len(fs)}, {sum(p.stat().st_size for p in fs) // 1024} KB\nprocesses:\n{bg_list()}"
 
-PROCS = {}
-def _tail(f, n=60): return "\n".join(f.read_text(errors="replace").splitlines()[-n:]) if f.exists() else "(no log)"
-def _key(name): return (str(ROOT.get()), name)
+def _bg_name(name):
+    value = re.sub(r"[^A-Za-z0-9_-]", "-", str(name or "process"))[:60].strip("-")
+    return value or "process"
 
-@tool("bg_start", "Start a long-running process (dev server, watcher) in the background; returns first log lines.", {"name": ("string", "label"), "command": ("string", ""), "cwd?": ("string", "")})
+@tool("bg_start", "Start a long-running process inside the persistent isolated Vercel Linux sandbox; returns first log lines.", {"name": ("string", "label"), "command": ("string", ""), "cwd?": ("string", "")})
 def bg_start(name, command, cwd="."):
-    bg_stop(name); log = ROOT.get() / ".forge" / f"{name}.log"; log.parent.mkdir(exist_ok=True)
-    PROCS[_key(name)] = subprocess.Popen(command, shell=True, cwd=safe(cwd), stdout=open(log, "w"), stderr=subprocess.STDOUT, start_new_session=True)
-    time.sleep(2.5); return f"started '{name}' pid {PROCS[_key(name)].pid}\n{_tail(log, 20)}"
+    label = _bg_name(name)
+    bg_stop(label)
+    folder = safe(cwd)
+    if not folder.is_dir():
+        return f"working directory does not exist: {cwd}"
+    remote_dir = ".forge"
+    shell = ("mkdir -p .forge; nohup bash -lc " + shlex.quote(command) +
+             " >.forge/" + label + ".log 2>&1 </dev/null & echo $! >.forge/" + label + ".pid; "
+             "sleep 2; echo PID=$(cat .forge/" + label + ".pid); tail -n 20 .forge/" + label + ".log 2>/dev/null || true")
+    return sh(shell, folder, 20)
 
-@tool("bg_logs", "Tail the log of a background process.", {"name": ("string", ""), "lines?": ("integer", "")})
+@tool("bg_logs", "Tail the log and report status of a background process running in the persistent Vercel Sandbox.", {"name": ("string", ""), "lines?": ("integer", "")})
 def bg_logs(name, lines=60):
-    p = PROCS.get(_key(name)); st = "not started" if not p else ("running" if p.poll() is None else f"exited {p.poll()}")
-    return f"[{st}]\n{_tail(ROOT.get() / '.forge' / f'{name}.log', int(lines))}"
+    label = _bg_name(name)
+    count = max(1, min(int(lines), 250))
+    command = ("if [ -f .forge/" + label + ".pid ] && kill -0 $(cat .forge/" + label + ".pid) 2>/dev/null; "
+               "then echo '[running]'; else echo '[stopped or exited]'; fi; "
+               "tail -n " + str(count) + " .forge/" + label + ".log 2>/dev/null || echo '(no log)'")
+    return sh(command, ROOT.get(), 20)
 
-@tool("bg_stop", "Stop a background process.", {"name": ("string", "")})
+@tool("bg_stop", "Stop a background process inside the persistent Vercel Sandbox.", {"name": ("string", "")})
 def bg_stop(name):
-    p = PROCS.pop(_key(name), None)
-    if p and p.poll() is None:
-        try: os.killpg(p.pid, signal.SIGTERM)
-        except Exception: p.terminate()
-        return "stopped"
-    return "not running"
+    label = _bg_name(name)
+    command = ("if [ -f .forge/" + label + ".pid ]; then P=$(cat .forge/" + label + ".pid); "
+               "kill \"$P\" 2>/dev/null && echo stopped || echo 'not running'; "
+               "rm -f .forge/" + label + ".pid; else echo 'not running'; fi")
+    return sh(command, ROOT.get(), 15)
 
-@tool("bg_list", "List background processes in this sandbox.", {})
+@tool("bg_list", "List background processes in the current persistent Vercel Sandbox.", {})
 def bg_list():
-    out = [f"{k[1]}: {'running' if p.poll() is None else 'exited'} pid {p.pid}" for k, p in PROCS.items() if k[0] == str(ROOT.get())]
-    return "\n".join(out) or "none"
+    command = "mkdir -p .forge; for f in .forge/*.pid; do [ -f \"$f\" ] || continue; n=$(basename \"$f\" .pid); p=$(cat \"$f\"); if kill -0 \"$p\" 2>/dev/null; then echo \"$n: running pid $p\"; else echo \"$n: exited pid $p\"; fi; done"
+    return sh(command, ROOT.get(), 15)
 
 # ===================== Render =====================
 @tool("render_owners", "List Render workspaces (owner ids).", {})
