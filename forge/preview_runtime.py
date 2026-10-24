@@ -26,6 +26,16 @@ BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico", ".pdf", ".z
                    ".tar", ".mp4", ".mp3", ".wav", ".woff", ".woff2", ".ttf", ".otf", ".so", ".dll"}
 
 
+
+
+async def _run_process(box, *args, timeout=None, **kwargs):
+    """Run a sandbox process with a client-side timeout; SDK run_process has no timeout kwarg."""
+    process = box.run_process(*args, **kwargs)
+    if timeout is None:
+        return await process
+    return await asyncio.wait_for(process, timeout=max(1, float(timeout)))
+
+
 def detect_preview(root: Path, port: int | None = None) -> dict[str, Any]:
     """Infer a conservative web start command from common project manifests."""
     root = root.resolve()
@@ -100,9 +110,9 @@ def _safe_stage_path(path: Path) -> bool:
 
 async def _write_workspace(box, project: Path) -> tuple[int, int]:
     count, total = 0, 0
-    await box.run_process("mkdir", ["-p", "/workspace"], capture_output=True, check=True)
+    await _run_process(box, "mkdir", ["-p", "/workspace"], capture_output=True, check=True)
     # Start clean while preserving the sandbox home and system tools.
-    await box.run_process("bash", ["-lc", "find /workspace -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +"],
+    await _run_process(box, "bash", ["-lc", "find /workspace -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +"],
                           capture_output=True, check=True)
     for path in project.rglob("*"):
         rel = path.relative_to(project)
@@ -116,7 +126,7 @@ async def _write_workspace(box, project: Path) -> tuple[int, int]:
         if total > int(os.getenv("VERCEL_PREVIEW_MAX_BYTES", str(100 * 1024 * 1024))):
             raise RuntimeError("Project exceeds the 100 MB preview staging limit.")
         remote = "/workspace/" + rel.as_posix()
-        await box.run_process("mkdir", ["-p", str(Path(remote).parent)], capture_output=True, check=True)
+        await _run_process(box, "mkdir", ["-p", str(Path(remote).parent)], capture_output=True, check=True)
         await box.fs.write_bytes(remote, data)
         count += 1
         if count > int(os.getenv("VERCEL_PREVIEW_MAX_FILES", "5000")):
@@ -137,7 +147,7 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
         try:
             box = await sandbox.get_sandbox(name=name)
             # A prior preview for this session may have left old processes behind.
-            await box.run_process("bash", ["-lc", "if [ -f /tmp/forge-preview-app.pid ]; then kill $(cat /tmp/forge-preview-app.pid) 2>/dev/null || true; rm -f /tmp/forge-preview-app.pid; fi"],
+            await _run_process(box, "bash", ["-lc", "if [ -f /tmp/forge-preview-app.pid ]; then kill $(cat /tmp/forge-preview-app.pid) 2>/dev/null || true; rm -f /tmp/forge-preview-app.pid; fi"],
                                   capture_output=True, check=False)
         except Exception:
             box = await sandbox.create_sandbox(
@@ -149,13 +159,13 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
         staged_count, staged_bytes = await _write_workspace(box, project)
         cwd = "/workspace"
         if deps_command:
-            result = await box.run_process("bash", ["-lc", "cd /workspace && " + deps_command],
+            result = await _run_process(box, "bash", ["-lc", "cd /workspace && " + deps_command],
                                            capture_output=True, check=False)
             if getattr(result, "exit_code", 1) != 0:
                 detail = ((getattr(result, "stdout", "") or "") + (getattr(result, "stderr", "") or ""))[-2500:]
                 raise RuntimeError("Dependency install failed: " + detail)
         launch = "cd " + shlex.quote(cwd) + " && exec " + start_command
-        result = await box.run_process(
+        result = await _run_process(box, 
             "bash", ["-lc", "nohup bash -lc " + shlex.quote(launch) +
                      " >/tmp/forge-preview-app.log 2>&1 </dev/null & echo $! >/tmp/forge-preview-app.pid"],
             capture_output=True, check=False,
@@ -164,14 +174,14 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
             raise RuntimeError("Could not launch preview server: " + str(getattr(result, "stderr", ""))[-1500:])
         ready = False
         for _ in range(30):
-            probe = await box.run_process("bash", ["-lc", f"curl -fsS --max-time 2 http://127.0.0.1:{port}/ >/dev/null"],
+            probe = await _run_process(box, "bash", ["-lc", f"curl -fsS --max-time 2 http://127.0.0.1:{port}/ >/dev/null"],
                                           capture_output=True, check=False)
             if getattr(probe, "exit_code", 1) == 0:
                 ready = True
                 break
             await asyncio.sleep(1)
         if not ready:
-            logs = await box.run_process("bash", ["-lc", "tail -n 45 /tmp/forge-preview-app.log 2>/dev/null || true"],
+            logs = await _run_process(box, "bash", ["-lc", "tail -n 45 /tmp/forge-preview-app.log 2>/dev/null || true"],
                                          capture_output=True, check=False)
             raise RuntimeError("App did not become ready on port " + str(port) + ". Logs: " +
                                ((getattr(logs, "stdout", "") or "") + (getattr(logs, "stderr", "") or ""))[-2500:])
