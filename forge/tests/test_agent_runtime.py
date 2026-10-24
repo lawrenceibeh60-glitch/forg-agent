@@ -67,3 +67,21 @@ def test_verification_policy_block_is_not_retried_blindly():
     output = "no isolated command runner is configured; refusing to execute on the host"
     assert agent_runtime.verification_unavailable(output)
     assert not agent_runtime.verification_succeeded("run_tests", output)
+
+
+
+def test_sandbox_blocker_detects_missing_runner_and_render_access():
+    assert agent_runtime.sandbox_blocker("no isolated command runner is configured")
+    assert agent_runtime.sandbox_blocker("Render sandbox is not configured. Required: SANDBOX_RENDER=1")
+    assert agent_runtime.sandbox_blocker("Render sandbox SDK missing; install render>=1.2")
+    assert agent_runtime.verification_unavailable("no isolated command runner is configured")
+
+
+def test_sandbox_blocker_does_not_mistake_normal_code_failure_for_infrastructure():
+    assert not agent_runtime.sandbox_blocker("AssertionError: expected 4, got 3 [exit 1]")
+    assert not agent_runtime.sandbox_blocker("npm test failed: one unit test failed")
+
+
+def test_route_heads_selects_security_lenses_for_sandbox_tasks():
+    heads = agent_runtime.route_heads("Fix the command sandbox execution loop")
+    assert {"router", "analyst", "executor", "verifier", "critic"} <= set(heads)
