@@ -97,7 +97,7 @@ def classify_task(text: str) -> str:
     value = (text or "")[-12000:]
     if CODING_TERMS.search(value):
         return "engineering"
-    if re.search(r"\b(add|implement|improve|upgrade|change|update|integrate|refactor|fix|build|create|remove|optimize|support)\b", value, re.I) and re.search(r"\b(feature|tool|workflow|interface|screen|button|component|endpoint|route|model|provider|agent|memory|sandbox|security|performance|test|deployment|database|schema|project)\b", value, re.I):
+    if re.search(r"\b(add|implement|improve|upgrade|change|update|integrate|refactor|fix|build|create|remove|optimize|support)\b", value, re.I) and re.search(r"\b(feature|tool|workflow|interface|screen|button|component|endpoint|route|model|provider|agent|memory|sandbox|security|performance|test|deployment|database|schema|project|theme|layout|dark mode|responsive|animation|style|ui)\b", value, re.I):
         return "engineering"
     if RESEARCH_TERMS.search(value):
         return "research"
@@ -209,7 +209,7 @@ def workspace_snapshot(root: str | Path, max_files: int = 90, max_manifest_chars
                         try:
                             raw = path.read_text(encoding="utf-8", errors="replace")
                             raw = re.sub(
-                                r"(?im)^([ \t]*(?:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PRIVATE[_-]?KEY|CLIENT[_-]?SECRET)[A-Z0-9_]*|password|secret|token)\s*[:=]\s*).+$",
+                                r"""(?im)^([ \t]*["']?(?:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PRIVATE[_-]?KEY|CLIENT[_-]?SECRET)[A-Z0-9_]*|password|secret|token)["']?\s*[:=]\s*["']?)[^,\n}]+""",
                                 r"\1[REDACTED]",
                                 raw,
                             )
