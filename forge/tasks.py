@@ -238,7 +238,7 @@ def recover_interrupted(stale_after=0):
             db.execute(
                 "UPDATE tasks SET status='blocked', current_step=?, last_error=?, checkpoint_json=?, updated_at=? WHERE id=?",
                 ("Process restart or execution timeout; checkpoint is resumable.",
-                 "The task stopped updating before reaching a final state.",
+                 "The agent process restarted or the task stopped updating before reaching a final state.",
                  json.dumps(checkpoint, ensure_ascii=False), now, row["id"]),
             )
             recovered += 1
