@@ -26,7 +26,7 @@ def test_detects_fastapi_module(tmp_path):
     (tmp_path / "requirements.txt").write_text("fastapi\nuvicorn\n")
     result = preview_runtime.detect_preview(tmp_path, 8000)
     assert result["kind"] == "asgi"
-    assert result["command"] == "python -m uvicorn main:app --host 0.0.0.0 --port 8000"
+    assert result["command"] == "python3 -m uvicorn main:app --host 0.0.0.0 --port 8000"
     assert "pip install" in result["install"]
 
 
