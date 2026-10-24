@@ -72,6 +72,13 @@ Do not put API keys in source control. Configure secrets through the Render dash
 
 SQLite and session files survive process restarts when the filesystem remains intact. **They do not survive every redeploy on an ephemeral filesystem.** For cross-deploy task and conversation persistence, attach a persistent disk to the service and set both `TASK_DB_PATH` and `FORGE_SESSION_DIR` to paths under its mount directory. The current free Render service plan may not support persistent disks; if not, use a supported persistent storage service before relying on checkpoints across deploys.
 
+## GitHub Mission Control
+
+The Project Brain panel includes an on-demand GitHub snapshot for the connected account: recently updated repositories, open pull requests, and recent GitHub Actions runs for a selected `owner/name` repository. The endpoint never returns the access token. Repository and workflow data require a valid GitHub connection or `GITHUB_TOKEN`.
+
+- `GET /api/github/mission`
+- `GET /api/github/mission?repo=owner/name`
+
 ## Specialist team reviews
 
 The Project Brain panel can run an on-demand, sequential review from three specialist roles: architect, security reviewer, and test strategist. It builds a bounded workspace map and sends it with the review goal to the configured model. Configure `FORGE_REVIEW_API_KEY`, `FORGE_REVIEW_BASE_URL`, and `FORGE_REVIEW_MODEL` together to use a dedicated reviewer model; otherwise the primary model is reused. This advisory review does not edit files or claim tests were executed.
