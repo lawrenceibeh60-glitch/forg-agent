@@ -29,11 +29,10 @@ BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico", ".pdf", ".z
 
 
 async def _run_process(box, *args, timeout=None, **kwargs):
-    """Run a sandbox process with a client-side timeout; SDK run_process has no timeout kwarg."""
-    process = box.run_process(*args, **kwargs)
-    if timeout is None:
-        return await process
-    return await asyncio.wait_for(process, timeout=max(1, float(timeout)))
+    """Map Forge's timeout option to the SDK's server-side kill_after parameter."""
+    if timeout is not None:
+        kwargs["kill_after"] = max(1, float(timeout))
+    return await box.run_process(*args, **kwargs)
 
 
 def detect_preview(root: Path, port: int | None = None) -> dict[str, Any]:
@@ -161,7 +160,7 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
         if deps_command:
             result = await _run_process(box, "bash", ["-lc", "cd /workspace && " + deps_command],
                                            capture_output=True, check=False)
-            if getattr(result, "exit_code", 1) != 0:
+            if getattr(result, "returncode", getattr(result, "exit_code", 1)) != 0:
                 detail = ((getattr(result, "stdout", "") or "") + (getattr(result, "stderr", "") or ""))[-2500:]
                 raise RuntimeError("Dependency install failed: " + detail)
         launch = "cd " + shlex.quote(cwd) + " && exec " + start_command
@@ -176,7 +175,7 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
         for _ in range(30):
             probe = await _run_process(box, "bash", ["-lc", f"curl -fsS --max-time 2 http://127.0.0.1:{port}/ >/dev/null"],
                                           capture_output=True, check=False)
-            if getattr(probe, "exit_code", 1) == 0:
+            if getattr(probe, "returncode", getattr(probe, "exit_code", 1)) == 0:
                 ready = True
                 break
             await asyncio.sleep(1)
