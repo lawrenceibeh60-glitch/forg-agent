@@ -167,9 +167,11 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
                 network_policy=NetworkPolicy.allow_all(),
                 tags={"app": "forge-agent", "purpose": "live-preview"},
             )
-        # Existing named sandboxes keep their original policy. Refresh it on every
-        # launch so a sandbox created under an older deny-all setting cannot block installs.
-        await box.update(network_policy=NetworkPolicy.allow_all(), ports=[port])
+        # Do not update a running persistent sandbox: Vercel rejects updates that
+        # implicitly change its region, and a failed update used to destroy the workspace.
+        # The network policy and exposed ports are established at sandbox creation.
+        # Reuse the existing sandbox as-is and let the actual readiness/route checks below
+        # report whether the requested port is available.
         staged_count, staged_bytes = await _write_workspace(box, project)
         cwd = "/workspace"
         if deps_command:
