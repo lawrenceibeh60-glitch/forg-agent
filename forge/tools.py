@@ -11,7 +11,7 @@ class _WS(os.PathLike):  # always points at the current chat's sandbox
     __str__ = __fspath__
 WS = _WS()
 def use(sid):
-    r = BASE / (re.sub(r"\\W", "", sid or "") or "default")[:16]; r.mkdir(exist_ok=True); ROOT.set(r); return r
+    r = BASE / (re.sub(r"\W", "", sid or "") or "default")[:16]; r.mkdir(exist_ok=True); ROOT.set(r); return r
 
 def list_files():
     """List safe, workspace-relative files for the active chat session."""
