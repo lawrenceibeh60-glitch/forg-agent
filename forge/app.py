@@ -686,6 +686,96 @@ def sandbox_preview(sid: str, path: str = "index.html"):
         "Cache-Control": "no-store",
     })
 
+# ===================== Project intelligence & quality APIs =====================
+import intelligence as project_intelligence
+
+def _valid_sid(sid):
+    return isinstance(sid, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid or "") is not None
+
+@app.get("/api/brain/map")
+def brain_map(sid: str):
+    if not _valid_sid(sid):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
+    try:
+        return project_intelligence.project_map(sid, tools)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+@app.get("/api/brain/search")
+def brain_search(sid: str, q: str, limit: int = 30):
+    if not _valid_sid(sid):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
+    try:
+        return project_intelligence.search_workspace(sid, q, tools, limit)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+class MemoryRequest(BaseModel):
+    session: str
+    kind: str = "decision"
+    title: str
+    body: str
+
+@app.get("/api/brain/memory")
+def brain_memory(sid: str, q: str = ""):
+    if not _valid_sid(sid):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
+    return {"items": project_intelligence.list_memory(sid, q)}
+
+@app.post("/api/brain/memory")
+def brain_memory_save(body: MemoryRequest):
+    if not _valid_sid(body.session):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
+    try:
+        item = project_intelligence.save_memory(body.session, body.kind, body.title, body.body)
+        return {"ok": True, "item": item}
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+@app.delete("/api/brain/memory/{memory_id}")
+def brain_memory_delete(memory_id: int, sid: str):
+    if not _valid_sid(sid):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
+    return {"ok": project_intelligence.delete_memory(sid, memory_id)}
+
+@app.get("/api/security/report")
+def security_report(sid: str):
+    if not _valid_sid(sid):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
+    try:
+        return project_intelligence.risk_report(sid, tools)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+@app.get("/api/evals/catalog")
+def evals_catalog():
+    return project_intelligence.evaluation_catalog()
+
+@app.get("/api/ops/overview")
+def ops_overview():
+    saved = connections.load_connections()
+    try:
+        task_health = tasks.health()
+    except Exception as exc:
+        task_health = {"ok": False, "error": type(exc).__name__}
+    try:
+        sandbox_health = render_sandbox.status()
+    except Exception:
+        sandbox_health = {"configured": bool(os.getenv("SANDBOX_RENDER") == "1"), "status": "unknown"}
+    return {
+        "app": {"status": "ok", "python": __import__("sys").version.split()[0]},
+        "model": {"primary_configured": bool(os.getenv("XKIRO_API_KEY") or os.getenv("KIRO_API_KEY")),
+                  "model": os.getenv("XKIRO_MODEL", "mistralai/devstral-medium"),
+                  "fallback_configured": bool(os.getenv("FORGE_FALLBACK_API_KEY") and os.getenv("FORGE_FALLBACK_BASE_URL") and os.getenv("FORGE_FALLBACK_MODEL"))},
+        "integrations": {"github": bool(saved.get("github", {}).get("access_token") or os.getenv("GITHUB_TOKEN")),
+                         "render": bool(os.getenv("RENDER_API_KEY"))},
+        "storage": {"tasks": task_health, "sessions_directory": str(SD), "sessions_directory_exists": SD.exists()},
+        "sandbox": sandbox_health,
+        "security": {"host_execution_allowed": os.getenv("SANDBOX_ALLOW_HOST_EXECUTION", "0") == "1",
+                      "network_opt_in": os.getenv("SANDBOX_NETWORK", "0") == "1",
+                      "app_password_enabled": bool(os.getenv("APP_PASSWORD"))}
+    }
+
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
