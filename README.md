@@ -97,6 +97,13 @@ The Project Brain panel can save and run reusable, session-scoped workflows. Sup
 - `POST /api/workflows/<id>/run?sid=<session>`
 - `DELETE /api/workflows/<id>?sid=<session>`
 
+## Evaluation Lab
+
+Project Brain exposes an explicit opt-in evaluation run. The user must confirm before Forge makes model calls; the API caps each run at 10 cases and the UI defaults to five. The run uses no tools and stores a bounded JSON report at `data/eval-results.json` (override with `FORGE_EVAL_RESULTS_PATH`). These are behavioral smoke checks, not a comprehensive benchmark. On an ephemeral Render filesystem, the report may not survive redeploys.
+
+- `GET /api/evals/catalog`
+- `POST /api/evals/run` with `{ "confirm": true, "limit": 5 }`
+
 ## Run checks
 
 From the repository root:
