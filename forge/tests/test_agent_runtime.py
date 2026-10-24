@@ -154,3 +154,22 @@ def test_agent_turn_budget_caps_unbounded_value(monkeypatch):
 def test_agent_turn_budget_handles_invalid_value(monkeypatch):
     monkeypatch.setenv("FORGE_MAX_AGENT_TURNS", "not-a-number")
     assert app._max_agent_turns() == 10000
+
+
+
+def test_vercel_sandbox_command_timeout_honors_longer_requests(monkeypatch):
+    import vercel_sandbox
+    monkeypatch.setenv("SANDBOX_COMMAND_TIMEOUT", "900")
+    assert vercel_sandbox._command_timeout(600) == 600
+
+
+def test_vercel_sandbox_command_timeout_is_capped(monkeypatch):
+    import vercel_sandbox
+    monkeypatch.setenv("SANDBOX_COMMAND_TIMEOUT", "99999")
+    assert vercel_sandbox._command_timeout(99999) == 900
+
+
+def test_vercel_sandbox_command_timeout_handles_bad_environment(monkeypatch):
+    import vercel_sandbox
+    monkeypatch.setenv("SANDBOX_COMMAND_TIMEOUT", "invalid")
+    assert vercel_sandbox._command_timeout(600) == 600
