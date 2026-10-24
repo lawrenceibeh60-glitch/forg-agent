@@ -26,11 +26,10 @@ BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico", ".pdf", ".z
 
 
 async def _run_process(box, *args, timeout=None, **kwargs):
-    """Run a sandbox process with a client-side timeout; SDK run_process has no timeout kwarg."""
-    process = box.run_process(*args, **kwargs)
-    if timeout is None:
-        return await process
-    return await asyncio.wait_for(process, timeout=max(1, float(timeout)))
+    """Map Forge's timeout option to the SDK's server-side kill_after parameter."""
+    if timeout is not None:
+        kwargs["kill_after"] = max(1, float(timeout))
+    return await box.run_process(*args, **kwargs)
 
 
 def _secret_path(path: Path) -> bool:
@@ -119,7 +118,7 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
                 tags={"app": "forge-agent", "purpose": "workspace"},
             )
         mkdir = await _run_process(box, "mkdir", ["-p", "/workspace"], capture_output=True, check=False)
-        if getattr(mkdir, "exit_code", 1) != 0:
+        if getattr(mkdir, "returncode", getattr(mkdir, "exit_code", 1)) != 0:
             return "Vercel Sandbox failed to prepare /workspace: " + str(getattr(mkdir, "stderr", ""))[:1000]
         for rel, text in staged:
             remote = Path("/workspace") / rel
@@ -134,7 +133,7 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
         )
         output = ((getattr(result, "stdout", "") or "") + (getattr(result, "stderr", "") or "")).strip()
         output = output or "(no output)"
-        exit_code = getattr(result, "exit_code", None)
+        exit_code = getattr(result, "returncode", getattr(result, "exit_code", None))
 
         # Sync text outputs only. Validate paths and skip secrets before writing locally.
         listing = await _run_process(box, "find", ["/workspace", "-type", "f", "-print"], capture_output=True, check=False)
