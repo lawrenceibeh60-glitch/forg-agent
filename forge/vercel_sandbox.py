@@ -133,9 +133,12 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
                 network_policy=network_policy,
                 tags={"app": "forge-agent", "purpose": "workspace"},
             )
-        # Persisted sandboxes may predate the current network setting; apply it
-        # to the live session on every run rather than trusting stale configuration.
-        await box.update(network_policy=network_policy)
+        # Do not update a named persistent sandbox on every invocation. The SDK's
+        # update path can submit the client's configured region as part of the update,
+        # which makes an existing sandbox in another region fail with
+        # sandbox_running_region_mismatch. Network policy is set at creation; if the
+        # policy needs to change, provision a new sandbox deliberately rather than
+        # mutating a running persistent sandbox in place.
         mkdir = await _run_process(box, "mkdir", ["-p", "/workspace"], capture_output=True, check=False)
         if getattr(mkdir, "returncode", getattr(mkdir, "exit_code", 1)) != 0:
             return "Vercel Sandbox failed to prepare /workspace: " + str(getattr(mkdir, "stderr", ""))[:1000]
