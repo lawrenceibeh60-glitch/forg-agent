@@ -97,11 +97,13 @@ async def stream(messages, tools):
                     started = True
                     yield item
                 return
-            except RuntimeError as exc:
+            except Exception as exc:
                 last_error = exc
                 if started:
                     raise
-                transient = bool(re.search(r"\b(429|5\d\d)\b", str(exc)))
+                transient = bool(re.search(r"\b(429|5\d\d)\b", str(exc))) or isinstance(
+                    exc, (httpx.TimeoutException, httpx.NetworkError)
+                )
                 if transient and attempt < 2:
                     await asyncio.sleep(3 * 2 ** attempt)
                     continue
