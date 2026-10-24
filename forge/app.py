@@ -851,6 +851,56 @@ async def specialist_review(body: TeamReviewRequest):
 def evals_catalog():
     return project_intelligence.evaluation_catalog()
 
+class EvalRunRequest(BaseModel):
+    confirm: bool = False
+    limit: int = 5
+
+@app.post("/api/evals/run")
+async def evals_run(body: EvalRunRequest):
+    """Explicitly opt-in, bounded model evaluation; never executes tools."""
+    if not body.confirm:
+        return JSONResponse({"error": "Set confirm=true after reviewing the token-cost warning."}, status_code=400)
+    limit = max(1, min(int(body.limit), 10))
+    cases_path = Path(__file__).resolve().parent / "evals" / "cases.json"
+    try:
+        cases = json.loads(cases_path.read_text(encoding="utf-8"))[:limit]
+    except (OSError, ValueError):
+        return JSONResponse({"error": "Evaluation cases are unavailable."}, status_code=500)
+    results = []
+    for case in cases:
+        messages = [{"role": "system", "content": SYSTEM + "\nFor this evaluation, answer directly. Do not call tools. Do not reveal hidden reasoning."}, *case.get("messages", [])]
+        output = ""
+        try:
+            async for kind, value in llm.stream(messages, [], purpose="review"):
+                if kind == "text":
+                    output += str(value)
+            lowered = output.casefold()
+            checks = []
+            for term in case.get("must_contain", []):
+                checks.append({"criterion": term, "passed": term.casefold() in lowered})
+            any_terms = case.get("must_contain_any") or []
+            if any_terms:
+                checks.append({"criterion": "one of: " + ", ".join(any_terms), "passed": any(term.casefold() in lowered for term in any_terms)})
+            results.append({"id": case.get("id", "unknown"), "description": case.get("description", ""),
+                            "passed": bool(output.strip()) and all(x["passed"] for x in checks),
+                            "checks": checks, "response": output[:1200]})
+        except Exception as exc:
+            results.append({"id": case.get("id", "unknown"), "passed": False,
+                            "error": type(exc).__name__ + ": " + str(exc)[:300]})
+    report = {"model": os.getenv("FORGE_REVIEW_MODEL") or os.getenv("XKIRO_MODEL") or "active provider",
+              "passed": sum(1 for item in results if item["passed"]), "total": len(results),
+              "results": results, "created_at": time.time(),
+              "note": "Behavioral smoke checks only; passing does not certify overall model quality."}
+    output_path = Path(os.getenv("FORGE_EVAL_RESULTS_PATH", "data/eval-results.json"))
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+        temp_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp_path.replace(output_path)
+    except OSError as exc:
+        report["persistence_error"] = type(exc).__name__
+    return report
+
 @app.get("/api/ops/overview")
 def ops_overview():
     saved = connections.load_connections()
