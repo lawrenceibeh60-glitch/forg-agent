@@ -342,3 +342,32 @@ def route_heads(task_text: str) -> list[str]:
     if re.search(r"\b(sandbox|shell|execute|command|security|credential|permission)\b", value):
         heads = ["router", "analyst", "executor", "verifier", "critic"]
     return list(dict.fromkeys(heads))
+
+
+
+def action_failed(output: str) -> bool:
+    """Conservatively identify failed execution/action results for loop prevention."""
+    value = str(output or "").lower()
+    markers = (
+        "traceback (most recent call last)",
+        "tool failed:",
+        "failed with exit code",
+        "exit code 1",
+        "exit code: 1",
+        "syntaxerror:",
+        "modulenotfounderror:",
+        "permissionerror:",
+        "connectionerror:",
+        "timeouterror:",
+        "assertionerror:",
+        "command not found",
+        "no such file or directory",
+        "permission denied",
+        "sandbox provisioning failed",
+        "failed to provision sandbox",
+        "http 500",
+        "http 502",
+        "http 503",
+        "http 504",
+    )
+    return any(marker in value for marker in markers)
