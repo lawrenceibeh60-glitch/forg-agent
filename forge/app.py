@@ -99,8 +99,10 @@ async def chat(req: Req):
     async def run():
         yield sse("session", {"id": sid})
         try:
-            edited = verified = nudged = False
-            for _ in range(40):
+            edited = verified = nudged = completion_checked = False
+            max_turns = max(40, min(80, int(os.getenv("FORGE_MAX_AGENT_TURNS", "60"))))
+            for turn in range(1, max_turns + 1):
+                yield sse("progress", {"text": f"Working through the task · reasoning cycle {turn}", "turn": turn})
                 tools.use(sid)
                 await compact(msgs)
                 m = None
@@ -112,7 +114,13 @@ async def chat(req: Req):
                 if not calls:
                     if edited and not verified and not nudged:
                         nudged = True
-                        msgs.append({"role": "user", "content": "[Automatic check] You changed files but ran nothing to verify them. Run the relevant tests/linter/build (or start the app and probe it) now and fix any failures. If verification is impossible, say exactly why."})
+                        yield sse("progress", {"text": "Checking the changes instead of stopping at the first implementation."})
+                        msgs.append({"role": "user", "content": "[Required verification] You changed files but ran nothing to verify them. Do not finalize yet. Run relevant tests/linter/build or a safe smoke check, inspect the results, and fix failures. If execution is unavailable, inspect the diff and state exactly what remains unverified."})
+                        continue
+                    if not completion_checked and turn < max_turns:
+                        completion_checked = True
+                        yield sse("progress", {"text": "Reviewing whether the original request is actually complete."})
+                        msgs.append({"role": "user", "content": "[Completion review] Compare the original request with everything completed so far. Do not merely repeat your previous answer. If meaningful requested steps remain and you can safely make progress, continue using tools now. Check results and recover from errors. If the task is complete, or a genuine external blocker remains, provide the final answer with concrete evidence and limitations. Do not invent work or loop pointlessly."})
                         continue
                     break
                 for c in calls:
@@ -142,9 +150,23 @@ async def chat(req: Req):
                     except Exception as e:
                         out = f"Tool {name} failed: {type(e).__name__}: {e}. Diagnose this result and try a different valid approach if possible."
                     yield sse("tool_result", {"id": c["id"], "output": str(out)[:4000]})
+                    yield sse("progress", {"text": f"Received result from {name}; evaluating the result and next step."})
                     msgs.append({"role": "tool", "tool_call_id": c["id"], "content": str(out)[:12000]})
         except Exception as e:
             yield sse("error", {"error": str(e)})
+        if "turn" in locals() and turn >= max_turns:
+            msgs.append({"role": "user", "content": "[Agent iteration limit reached] You reached the current execution budget. Do not claim full completion unless verified. Summarize completed work, what you verified, and the specific remaining steps or blocker."})
+            yield sse("progress", {"text": "Reached the current work budget; preparing an honest checkpoint."})
+            try:
+                final_message = ""
+                async for kind, val in llm.stream(msgs, []):
+                    if kind == "text":
+                        final_message += val
+                        yield sse("delta", {"text": val})
+                if final_message:
+                    msgs.append({"role": "assistant", "content": final_message})
+            except Exception:
+                pass
         save(sid, msgs)
         yield sse("done", {})
     return StreamingResponse(run(), media_type="text/event-stream")
