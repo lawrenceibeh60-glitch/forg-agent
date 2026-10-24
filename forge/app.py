@@ -194,6 +194,14 @@ async def chat(req: Req):
     sid = req.session or uuid.uuid4().hex
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid):
         return JSONResponse({"error": "invalid session id"}, status_code=400)
+    # Validate continuation ownership/state before mutating the saved conversation.
+    resume_task = None
+    if req.task_id:
+        resume_task = tasks.get(req.task_id)
+        if not resume_task or resume_task.get("session_id") != sid:
+            return JSONResponse({"error": "task not found for this session"}, status_code=404)
+        if resume_task.get("status") in {"completed", "cancelled"}:
+            return JSONResponse({"error": f"Task is {resume_task['status']} and cannot be resumed."}, status_code=409)
     msgs = load(sid); msgs[0]["content"] = system()
     try:
         saved_project_memory = project_intelligence.list_memory(sid, limit=30)
@@ -238,11 +246,7 @@ async def chat(req: Req):
         user_content = parts
     msgs.append({"role": "user", "content": user_content})
     if req.task_id:
-        task = tasks.get(req.task_id)
-        if not task or task.get("session_id") != sid:
-            return JSONResponse({"error": "task not found for this session"}, status_code=404)
-        if task.get("status") in {"completed", "cancelled"}:
-            return JSONResponse({"error": f"Task is {task['status']} and cannot be resumed."}, status_code=409)
+        task = resume_task
         task_id = task["id"]
         previous_checkpoint = task.get("checkpoint") or {}
         tasks.update(
