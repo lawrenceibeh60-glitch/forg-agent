@@ -57,3 +57,13 @@ def test_workflow_run_is_session_scoped(db):
     saved = workflows.save("session1", "Audit", [{"action": "map_workspace"}])
     with pytest.raises(ValueError, match="not found"):
         workflows.run("session2", saved["id"], object(), object())
+
+
+def test_workflow_update_keeps_identity_and_is_session_scoped(db):
+    original = workflows.save("session1", "Audit", [{"action": "map_workspace"}])
+    updated = workflows.save("session1", "Updated audit", [{"action": "security_scan"}], original["id"])
+    assert updated["id"] == original["id"]
+    assert updated["name"] == "Updated audit"
+    assert updated["steps"][0]["action"] == "security_scan"
+    with pytest.raises(ValueError, match="not found"):
+        workflows.save("other-session", "Hijack", [{"action": "map_workspace"}], original["id"])
