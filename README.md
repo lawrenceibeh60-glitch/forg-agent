@@ -159,3 +159,12 @@ It checks basic reasoning, recent-turn reference resolution, answers to prior qu
 - `GET /api/tasks/{task_id}` — one checkpoint
 - `POST /api/tasks/{task_id}/resume` — resume a blocked/failed/running task
 - `GET /api/sessions/{session_id}/tasks` — tasks associated with a conversation
+
+
+## Backend brain and sandbox circuit breaker
+
+Forge's backend injects a versioned cognitive operating profile on every request. It coordinates router, planner, analyst, executor, verifier, and critic roles through the active configured model; these are role-specific reasoning lenses, not separate neural networks. Task intent selects the relevant lenses automatically. This profile is backend-owned rather than exposed as another UI setting.
+
+When command execution returns a recognized sandbox configuration/access failure (for example, no isolated runner, missing Render sandbox configuration or SDK, disabled shell policy, or unavailable workspace access), the agent opens a task-scoped circuit breaker. It does not repeat the command or switch to another execution tool to bypass the failure. It records the blocker, performs at most one text-only final synthesis, marks the task blocked, and tells the user what configuration/access fix is needed. Ordinary test failures remain eligible for normal diagnosis and repair.
+
+The backend sandbox diagnostic is available at \`GET /api/sandbox/status\`; the authenticated end-to-end provisioning check is \`POST /api/sandbox/test\`. Configure and verify the sandbox before expecting shell-based tests/builds to work in production.
