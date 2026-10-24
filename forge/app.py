@@ -490,23 +490,34 @@ async def chat(req: Req):
         yield sse("done", {"task_id": task_id})
     return StreamingResponse(run(), media_type="text/event-stream")
 
-PW = os.getenv("APP_PASSWORD")
-OAUTH_STATES = {}
-def tok(): return hmac.new(PW.encode(), b"forge", hashlib.sha256).hexdigest()
+SESSION_SECRET = os.getenv("FORGE_SESSION_SECRET") or os.getenv("OAUTH_ENCRYPTION_SECRET", "")
+ALLOWED_GITHUB_USERS = {u.strip().lower() for u in os.getenv("GITHUB_ALLOWED_USERS", "").split(",") if u.strip()}
+
+def _session_value(login: str, user_id: str, expires: int) -> str:
+    payload = f"{login.lower()}|{user_id}|{expires}"
+    signature = hmac.new(SESSION_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return payload + "|" + signature
+
+def _valid_session(request: Request) -> bool:
+    if not SESSION_SECRET:
+        return False
+    raw = request.cookies.get("forge_session", "")
+    try:
+        login, user_id, expires, signature = raw.rsplit("|", 3)
+        payload = f"{login}|{user_id}|{expires}"
+        expected = hmac.new(SESSION_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+        return (hmac.compare_digest(signature, expected) and int(expires) > int(time.time())
+                and bool(login) and bool(user_id)
+                and (not ALLOWED_GITHUB_USERS or login.lower() in ALLOWED_GITHUB_USERS))
+    except (ValueError, TypeError):
+        return False
 
 @app.middleware("http")
 async def gate(request, call_next):
-    p = request.url.path
-    if PW and p.startswith("/api/") and p != "/api/login" and request.cookies.get("forge") != tok():
-        return JSONResponse({"error": "auth"}, status_code=401)
+    path = request.url.path
+    if path.startswith("/api/") and path not in {"/api/healthz"} and not _valid_session(request):
+        return JSONResponse({"error": "github_sign_in_required", "login_url": "/auth/github"}, status_code=401)
     return await call_next(request)
-
-@app.post("/api/login")
-async def login(b: dict):
-    if PW and not hmac.compare_digest(str(b.get("password", "")), PW): return JSONResponse({"error": "bad password"}, status_code=401)
-    r = JSONResponse({"ok": True})
-    if PW: r.set_cookie("forge", tok(), httponly=True, samesite="lax", max_age=2592000)
-    return r
 
 
 @app.get("/auth/github")
@@ -514,8 +525,9 @@ async def github_oauth_start(request: Request):
     client_id = os.getenv("GITHUB_CLIENT_ID", "")
     if not client_id:
         return JSONResponse({"error": "GitHub OAuth is not configured. The deployment owner must set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET once."}, status_code=503)
+    if not SESSION_SECRET:
+        return JSONResponse({"error": "Set FORGE_SESSION_SECRET before enabling GitHub sign-in."}, status_code=503)
     state = secrets.token_urlsafe(32)
-    OAUTH_STATES[state] = time.time()
     redirect_uri = os.getenv("GITHUB_REDIRECT_URI") or str(request.base_url).rstrip("/") + "/auth/github/callback"
     from urllib.parse import urlencode
     url = "https://github.com/login/oauth/authorize?" + urlencode({
@@ -523,7 +535,8 @@ async def github_oauth_start(request: Request):
         "scope": "repo read:user user:email", "state": state
     })
     response = RedirectResponse(url, status_code=302)
-    response.set_cookie("forge_oauth_state", state, httponly=True,
+    state_sig = hmac.new(SESSION_SECRET.encode(), state.encode(), hashlib.sha256).hexdigest()
+    response.set_cookie("forge_oauth_state", state + "." + state_sig, httponly=True,
                         secure=request.url.scheme == "https", samesite="lax", max_age=600)
     return response
 
@@ -531,11 +544,17 @@ async def github_oauth_start(request: Request):
 @app.get("/auth/github/callback")
 async def github_oauth_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     cookie_state = request.cookies.get("forge_oauth_state", "")
-    issued = OAUTH_STATES.pop(state, 0)
     if error:
         return RedirectResponse("/?connection=github_denied", status_code=303)
-    if not state or not cookie_state or not hmac.compare_digest(state, cookie_state) or not issued or time.time() - issued > 600:
-        return JSONResponse({"error": "OAuth state check failed. Start the GitHub connection again."}, status_code=400)
+    try:
+        expected_state, state_sig = cookie_state.rsplit(".", 1)
+        expected_sig = hmac.new(SESSION_SECRET.encode(), state.encode(), hashlib.sha256).hexdigest()
+        valid_state = bool(SESSION_SECRET and state and hmac.compare_digest(state, expected_state)
+                           and hmac.compare_digest(state_sig, expected_sig))
+    except ValueError:
+        valid_state = False
+    if not valid_state:
+        return JSONResponse({"error": "OAuth state check failed. Start the GitHub sign-in again."}, status_code=400)
     client_id, client_secret = os.getenv("GITHUB_CLIENT_ID", ""), os.getenv("GITHUB_CLIENT_SECRET", "")
     if not client_id or not client_secret or not code:
         return JSONResponse({"error": "GitHub OAuth configuration or authorization code is missing."}, status_code=400)
@@ -552,11 +571,17 @@ async def github_oauth_callback(request: Request, code: str = "", state: str = "
         if user_response.status_code >= 400:
             return JSONResponse({"error": "GitHub account verification failed."}, status_code=502)
         user = user_response.json()
+    login_name = str(user.get("login", "")).lower()
+    if ALLOWED_GITHUB_USERS and login_name not in ALLOWED_GITHUB_USERS:
+        return JSONResponse({"error": "This GitHub account is not on the Forge access allowlist."}, status_code=403)
     saved = connections.load_connections()
     saved["github"] = {"access_token": token_data["access_token"], "login": user.get("login", ""),
                        "id": user.get("id"), "connected_at": int(time.time())}
     connections.save_connections(saved)
     response = RedirectResponse("/?connection=github_connected", status_code=303)
+    response.set_cookie("forge_session", _session_value(login_name, str(user.get("id", "")), int(time.time()) + 2592000),
+                        httponly=True, secure=request.url.scheme == "https", samesite="lax",
+                        max_age=2592000, path="/")
     response.delete_cookie("forge_oauth_state")
     return response
 
@@ -634,18 +659,13 @@ def sandbox_status():
 
 @app.post("/api/sandbox/test")
 def sandbox_test():
-    """Explicit, authenticated end-to-end test of Render sandbox provisioning and execution."""
+    """End-to-end test of the configured isolated sandbox provider."""
     try:
-        if not PW:
-            return JSONResponse({"ok": False, "error": "Set APP_PASSWORD before using the sandbox test endpoint."}, status_code=503)
-        import render_sandbox
-        if not render_sandbox.configured():
-            return JSONResponse({"ok": False, "error": render_sandbox.status().get("reason", "Sandbox is not configured.")}, status_code=503)
-        workspace_root = Path(os.getenv("WORKSPACE", "workspace")).resolve()
+        workspace_root = Path(os.getenv("WORKSPACE", "/tmp/forge-workspace")).resolve()
         workspace_root.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".forge-sandbox-test-", dir=workspace_root) as tmp:
-            result = render_sandbox.run("printf FORGE_SANDBOX_OK", Path(tmp), timeout=45)
-        ok = "FORGE_SANDBOX_OK" in result and "[exit 0;" in result
+            result = tools.run_command("printf FORGE_SANDBOX_OK", Path(tmp), timeout=45)
+        ok = "FORGE_SANDBOX_OK" in result
         if not ok:
             return JSONResponse({"ok": False, "error": result[-1200:]}, status_code=502)
         return {"ok": True, "message": "Render sandbox provisioned, executed a test command, and terminated successfully.", "result": result[-500:]}
@@ -1088,7 +1108,7 @@ def ops_overview():
         "sandbox": sandbox_health,
         "security": {"host_execution_allowed": os.getenv("SANDBOX_ALLOW_HOST_EXECUTION", "0") == "1",
                       "network_opt_in": os.getenv("SANDBOX_NETWORK", "0") == "1",
-                      "app_password_enabled": bool(os.getenv("APP_PASSWORD"))}
+                      "github_sign_in_required": True}
     }
 
 @app.get("/healthz")
