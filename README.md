@@ -32,7 +32,7 @@ Forge is a streaming, tool-using AI workspace with configurable OpenAI-compatibl
 | `SANDBOX_RENDER` | Use Render-managed ephemeral sandboxes when `1` |
 | `RENDER_WORKSPACE_ID` | Render workspace ID required by the managed sandbox SDK |
 | `SANDBOX_NETWORK` | Opt-in outbound network access from sandbox jobs; default off |
-| `SANDBOX_NETWORK_POLICY` | Render sandbox outbound policy; default `deny` |
+| `SANDBOX_NETWORK_POLICY` | Render sandbox outbound policy; default `deny-all` |
 | `SANDBOX_COMMAND_TIMEOUT` | Maximum per-command runtime in seconds; default 120 |
 | `SANDBOX_ALLOW_HOST_EXECUTION` | Development-only host shell escape hatch; keep `0) on public deployments |
 | `APP_PASSWORD` | Optional app access password / encryption fallback |
