@@ -1,9 +1,17 @@
 """Render-managed remote command execution for Forge."""
 from __future__ import annotations
-import os, shutil, tempfile, time
+import os, shutil, tempfile, time, hashlib
 from pathlib import Path
 
-SKIP_DIRS = {".git", ".forge", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache"}
+SKIP_DIRS = {".git", ".forge", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache",
+             ".ssh", ".aws", ".azure", ".kube", ".gnupg", ".config"}
+SKIP_NAMES = {".env", ".netrc", ".npmrc", ".pypirc", ".dockerconfigjson", "credentials",
+              "credentials.json", "secrets.json", "id_rsa", "id_ed25519", "known_hosts"}
+SECRET_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".keystore", ".jks", ".kdb", ".crt"}
+def _secret_path(path: Path) -> bool:
+    return (path.name in SKIP_FILES or path.name in SKIP_NAMES
+            or path.name.startswith(".env.") or path.suffix.lower() in SECRET_SUFFIXES
+            or any(part.lower() in {"secrets", "credentials"} for part in path.parts))
 SKIP_FILES = {".env", ".env.local", ".env.production", ".netrc", "id_rsa", "id_ed25519"}
 MAX_FILES = int(os.getenv("SANDBOX_MAX_SYNC_FILES", "1500"))
 MAX_BYTES = int(os.getenv("SANDBOX_MAX_SYNC_BYTES", str(30 * 1024 * 1024)))
@@ -43,13 +51,21 @@ def _stage(source: Path, target: Path):
         rel = p.relative_to(source)
         if p.is_symlink() or not p.is_file() or any(x in SKIP_DIRS for x in rel.parts):
             continue
-        if p.name in SKIP_FILES or p.name.startswith(".env.") or p.suffix in {".pem", ".key", ".p12", ".pfx"}:
+        if _secret_path(rel):
             continue
         count += 1
         total += p.stat().st_size
         if count > MAX_FILES or total > MAX_BYTES:
             raise RuntimeError("workspace exceeds configured sandbox sync limits")
         dest = target / rel
+        if dest.is_symlink():
+            raise RuntimeError("sandbox output attempted to overwrite a symlink")
+        if dest.is_file():
+            try:
+                if dest.stat().st_size == p.stat().st_size and hashlib.sha256(dest.read_bytes()).digest() == hashlib.sha256(p.read_bytes()).digest():
+                    continue
+            except OSError:
+                pass
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(p, dest)
     return count, total
@@ -62,7 +78,7 @@ def _sync_back(source: Path, target: Path):
         if p.is_symlink() or not p.is_file():
             continue
         rel = p.relative_to(source)
-        if any(x in SKIP_DIRS for x in rel.parts) or p.name in SKIP_FILES or p.name.startswith(".env.") or p.suffix in {".pem", ".key", ".p12", ".pfx"}:
+        if any(x in SKIP_DIRS for x in rel.parts) or _secret_path(rel):
             continue
         count += 1
         total += p.stat().st_size
@@ -91,7 +107,11 @@ def run(command: str, cwd: Path, timeout: int = 120) -> str:
     if active_root != workspace_root and active_root.parent != workspace_root:
         raise ValueError("sandbox workspace is outside WORKSPACE")
     relative_cwd = root.relative_to(active_root).as_posix()
-    timeout = max(1, min(int(timeout), int(os.getenv("SANDBOX_COMMAND_TIMEOUT", "120"))))
+    try:
+        configured_timeout = int(os.getenv("SANDBOX_COMMAND_TIMEOUT", "120"))
+    except (TypeError, ValueError):
+        configured_timeout = 120
+    timeout = max(1, min(int(timeout), max(1, min(configured_timeout, 900))))
     client = Render(token=os.getenv("RENDER_API_KEY"), owner_id=os.getenv("RENDER_WORKSPACE_ID"))
     sandbox = None
     with tempfile.TemporaryDirectory(prefix="forge-in-") as tmp_in, tempfile.TemporaryDirectory(prefix="forge-out-") as tmp_out:
@@ -101,9 +121,11 @@ def run(command: str, cwd: Path, timeout: int = 120) -> str:
         stage_out = Path(tmp_out) / "workspace"
         stage_out.mkdir()
         try:
-            network_policy = os.getenv("SANDBOX_NETWORK_POLICY", "deny-all")
+            network_policy = os.getenv("SANDBOX_NETWORK_POLICY", "deny-all").strip().lower()
             if os.getenv("SANDBOX_NETWORK", "0") == "1":
                 network_policy = "allow-all"
+            if network_policy not in {"deny-all", "allow-all"}:
+                raise ValueError("SANDBOX_NETWORK_POLICY must be deny-all or allow-all")
             api = client.experimental.sandboxes
             create_args = {"timeout_seconds": max(60, timeout + 30), "network_policy": network_policy}
             # A named snapshot can preinstall tools such as IPython while the
@@ -133,7 +155,8 @@ def run(command: str, cwd: Path, timeout: int = 120) -> str:
             api.copy_from(sandbox.id, "/workspace", str(stage_out))
             synced = _sync_back(stage_out, active_root)
             result = "".join(output).strip()[-6000:] or "(no output)"
-            return f"{result}\n[exit {exit_code if exit_code is not None else 'unknown'}; synced {synced} file(s); staged {count} file(s), {size // 1024} KB]"
+            evidence = "exit status unavailable; verification cannot be confirmed" if exit_code is None else f"exit {exit_code}"
+            return f"{result}\n[{evidence}; synced {synced} changed file(s); staged {count} file(s), {size // 1024} KB]"
         except Exception as exc:
             return f"Render sandbox execution failed closed: {type(exc).__name__}: {str(exc)[:500]}"
         finally:
