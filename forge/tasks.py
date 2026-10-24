@@ -88,7 +88,7 @@ def update(task_id, **fields):
             value = json.dumps(value, ensure_ascii=False)[:30000]
         elif key in ("goal", "current_step", "last_error"):
             value = str(value)[:12000]
-        elif key == "status" and value not in {"running", "waiting_approval", "completed", "blocked", "failed", "cancelled"}:
+        elif key == "status" and value not in {"running", "waiting_approval", "completed", "paused", "blocked", "failed", "cancelled"}:
             raise ValueError("invalid task status")
         sets.append(column + "=?")
         vals.append(value)
