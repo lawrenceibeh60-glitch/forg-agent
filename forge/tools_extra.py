@@ -1,5 +1,5 @@
 """60+ extra tools. Same @tool decorator; auto-registered. No extra dependencies."""
-import os, re, json, ast, math, hashlib, base64, uuid, difflib, sqlite3, socket, subprocess, zipfile, shutil, operator, urllib.parse as up
+import os, re, json, ast, math, hashlib, base64, uuid, difflib, sqlite3, socket, subprocess, zipfile, shutil, operator, shlex, urllib.parse as up
 from datetime import datetime, timezone, timedelta
 import httpx
 from tools import tool, safe, WS, sh, gh
