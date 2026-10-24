@@ -672,7 +672,7 @@ def sandbox_status():
 def sandbox_test():
     """End-to-end test of the configured isolated sandbox provider."""
     try:
-        workspace_root = Path(os.getenv("WORKSPACE", "/tmp/forge-workspace")).resolve()
+        workspace_root = Path(tools.ROOT.get()).resolve()
         workspace_root.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".forge-sandbox-test-", dir=workspace_root) as tmp:
             result = tools.sh("printf FORGE_SANDBOX_OK", cwd=Path(tmp), timeout=45)
@@ -1104,10 +1104,20 @@ def ops_overview():
     except Exception as exc:
         task_health = {"ok": False, "error": type(exc).__name__}
     try:
-        import render_sandbox
-        sandbox_health = render_sandbox.status()
-    except Exception:
-        sandbox_health = {"configured": bool(os.getenv("SANDBOX_RENDER") == "1"), "status": "unknown"}
+        if os.getenv("SANDBOX_VERCEL", "0") == "1":
+            import vercel_sandbox
+            sandbox_health = vercel_sandbox.status()
+            sandbox_health["provider"] = "vercel"
+        elif os.getenv("SANDBOX_RENDER", "0") == "1":
+            import render_sandbox
+            sandbox_health = render_sandbox.status()
+            sandbox_health["provider"] = "render"
+        else:
+            sandbox_health = {"configured": False, "ready": False, "provider": "disabled",
+                              "reason": "No managed sandbox provider is selected."}
+    except Exception as exc:
+        sandbox_health = {"configured": False, "ready": False, "provider": "unknown",
+                          "reason": type(exc).__name__}
     return {
         "app": {"status": "ok", "python": __import__("sys").version.split()[0]},
         "model": {"primary_configured": bool(os.getenv("XKIRO_API_KEY") or os.getenv("KIRO_API_KEY")),
