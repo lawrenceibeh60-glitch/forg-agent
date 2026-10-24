@@ -154,7 +154,7 @@ async def chat(req: Req):
                     msgs.append({"role": "tool", "tool_call_id": c["id"], "content": str(out)[:12000]})
         except Exception as e:
             yield sse("error", {"error": str(e)})
-        if "turn" in locals() and turn >= max_turns:
+        if "turn" in locals() and turn >= max_turns and calls:
             msgs.append({"role": "user", "content": "[Agent iteration limit reached] You reached the current execution budget. Do not claim full completion unless verified. Summarize completed work, what you verified, and the specific remaining steps or blocker."})
             yield sse("progress", {"text": "Reached the current work budget; preparing an honest checkpoint."})
             try:
