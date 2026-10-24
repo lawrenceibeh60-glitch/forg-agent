@@ -8,13 +8,13 @@ From this directory (`forge/`):
 python -m venv .venv
 # Windows: .venv\\Scripts\\activate
 # macOS/Linux: source .venv/bin/activate
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.txt pytest
 cp .env.example .env  # Windows PowerShell: Copy-Item .env.example .env
 # Edit .env and set XKIRO_API_KEY
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Open http://localhost:8000. xKiro is configured as the default provider when `XKIRO_API_KEY` is present. Defaults are `https://api.xkiro.com/v1` and `mistralai/devstral-medium`; override them with `XKIRO_BASE_URL` and `XKIRO_MODEL` if your account uses a different endpoint/model. Legacy `KIRO_*` variables remain supported.
+Open http://localhost:8000. Use Python 3.12 rather than Python 3.14 for this pinned MCP/Pydantic dependency set. If your existing virtual environment was created with Python 3.14, recreate it with Python 3.12 before reinstalling requirements. Run `python -m pytest -q` to execute the smoke tests. xKiro is configured as the default provider when `XKIRO_API_KEY` is present. Defaults are `https://api.xkiro.com/v1` and `mistralai/devstral-medium`; override them with `XKIRO_BASE_URL` and `XKIRO_MODEL` if your account uses a different endpoint/model. Legacy `KIRO_*` variables remain supported.
 
 ## Deploy to Render
 
