@@ -96,19 +96,19 @@ def update(task_id, **fields):
         return get(task_id)
     sets.append("updated_at=?")
     vals.extend([time.time(), task_id])
-    with _LOCK, _connect() as db:
+    with _LOCK, _database() as db:
         db.execute("UPDATE tasks SET " + ", ".join(sets) + " WHERE id=?", vals)
         row = db.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
     return _decode(row)
 
 
 def get(task_id):
-    with _LOCK, _connect() as db:
+    with _LOCK, _database() as db:
         return _decode(db.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone())
 
 
 def latest_for_session(session_id):
-    with _LOCK, _connect() as db:
+    with _LOCK, _database() as db:
         return _decode(db.execute(
             "SELECT * FROM tasks WHERE session_id=? ORDER BY updated_at DESC LIMIT 1",
             (str(session_id),),
@@ -116,7 +116,7 @@ def latest_for_session(session_id):
 
 
 def list_for_session(session_id, limit=10):
-    with _LOCK, _connect() as db:
+    with _LOCK, _database() as db:
         rows = db.execute(
             "SELECT * FROM tasks WHERE session_id=? ORDER BY updated_at DESC LIMIT ?",
             (str(session_id), max(1, min(int(limit), 50))),
@@ -125,7 +125,7 @@ def list_for_session(session_id, limit=10):
 
 
 def list_recent(limit=30):
-    with _LOCK, _connect() as db:
+    with _LOCK, _database() as db:
         rows = db.execute(
             "SELECT * FROM tasks ORDER BY updated_at DESC LIMIT ?",
             (max(1, min(int(limit), 100)),),
@@ -136,7 +136,7 @@ def list_recent(limit=30):
 def health():
     persistent_hint = str(_DB.resolve())
     try:
-        with _LOCK, _connect() as db:
+        with _LOCK, _database() as db:
             db.execute("SELECT 1").fetchone()
         return {"ok": True, "backend": "sqlite", "path": persistent_hint,
                 "durability_note": "Survives process restarts; survives redeploys only when TASK_DB_PATH is on persistent storage."}
