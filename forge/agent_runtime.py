@@ -211,7 +211,7 @@ def verification_unavailable(output: str) -> bool:
         "set app_password before using the sandbox test",
         "refusing to execute on the host",
     )
-    return any(marker in value for marker in markers)
+    return sandbox_blocker(value) or any(marker in value for marker in markers)
 
 
 def workspace_snapshot(root: str | Path, max_files: int = 90, max_manifest_chars: int = 1800) -> str:
