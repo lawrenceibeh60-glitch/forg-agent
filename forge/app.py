@@ -409,6 +409,7 @@ async def chat(req: Req):
                     checkpoint=orchestrator.checkpoint("sandbox_circuit_open", turn=locals().get("turn", 0),
                         reason=sandbox_block_reason[:1000], failures=sandbox_failure_count, message_count=len(msgs),
                         next_action="Fix sandbox configuration/access, then start or resume a task"))
+                break
         except asyncio.CancelledError:
             task_status = "blocked"
             tasks.update(task_id, status="blocked", last_error="The streaming request was interrupted; resume from the saved checkpoint.", current_step="Connection interrupted; checkpoint saved", checkpoint={"phase": "client_cancelled", "message_count": len(msgs), "turn": locals().get("turn", 0)})
