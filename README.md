@@ -68,6 +68,15 @@ Do not put API keys in source control. Configure secrets through the Render dash
 
 SQLite and session files survive process restarts when the filesystem remains intact. **They do not survive every redeploy on an ephemeral filesystem.** For cross-deploy task and conversation persistence, attach a persistent disk to the service and set both `TASK_DB_PATH` and `FORGE_SESSION_DIR` to paths under its mount directory. The current free Render service plan may not support persistent disks; if not, use a supported persistent storage service before relying on checkpoints across deploys.
 
+## Visual workflow builder
+
+The Project Brain panel can save and run reusable, session-scoped workflows. Supported steps are `map_workspace`, `search_workspace`, `security_scan`, and `list_memory`. Workflows are limited to 20 steps and cannot run arbitrary shell commands or external side effects. Step results are persisted during execution so failed runs retain their completed-step output.
+
+- `GET /api/workflows?sid=<session>`
+- `POST /api/workflows` with a session, name, and ordered steps
+- `POST /api/workflows/<id>/run?sid=<session>`
+- `DELETE /api/workflows/<id>?sid=<session>`
+
 ## Run checks
 
 From the repository root:
