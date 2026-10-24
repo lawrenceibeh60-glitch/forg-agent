@@ -1,13 +1,13 @@
-import os, json, uuid, asyncio, hmac, hashlib
+import os, json, uuid, asyncio, hmac, hashlib, secrets, time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import re, shutil, llm, tools, tools_extra, tools_ops
+import re, shutil, llm, tools, tools_extra, tools_ops, connections
 from mcp_client import mcp
 
 from prompts import SYSTEM
@@ -118,6 +118,7 @@ async def chat(req: Req):
     return StreamingResponse(run(), media_type="text/event-stream")
 
 PW = os.getenv("APP_PASSWORD")
+OAUTH_STATES = {}
 def tok(): return hmac.new(PW.encode(), b"forge", hashlib.sha256).hexdigest()
 
 @app.middleware("http")
@@ -133,6 +134,79 @@ async def login(b: dict):
     r = JSONResponse({"ok": True})
     if PW: r.set_cookie("forge", tok(), httponly=True, samesite="lax", max_age=2592000)
     return r
+
+
+@app.get("/auth/github")
+async def github_oauth_start(request: Request):
+    client_id = os.getenv("GITHUB_CLIENT_ID", "")
+    if not client_id:
+        return JSONResponse({"error": "GitHub OAuth is not configured. The deployment owner must set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET once."}, status_code=503)
+    state = secrets.token_urlsafe(32)
+    OAUTH_STATES[state] = time.time()
+    redirect_uri = os.getenv("GITHUB_REDIRECT_URI") or str(request.base_url).rstrip("/") + "/auth/github/callback"
+    from urllib.parse import urlencode
+    url = "https://github.com/login/oauth/authorize?" + urlencode({
+        "client_id": client_id, "redirect_uri": redirect_uri,
+        "scope": "repo read:user user:email", "state": state
+    })
+    response = RedirectResponse(url, status_code=302)
+    response.set_cookie("forge_oauth_state", state, httponly=True,
+                        secure=request.url.scheme == "https", samesite="lax", max_age=600)
+    return response
+
+
+@app.get("/auth/github/callback")
+async def github_oauth_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    cookie_state = request.cookies.get("forge_oauth_state", "")
+    issued = OAUTH_STATES.pop(state, 0)
+    if error:
+        return RedirectResponse("/?connection=github_denied", status_code=303)
+    if not state or not cookie_state or not hmac.compare_digest(state, cookie_state) or not issued or time.time() - issued > 600:
+        return JSONResponse({"error": "OAuth state check failed. Start the GitHub connection again."}, status_code=400)
+    client_id, client_secret = os.getenv("GITHUB_CLIENT_ID", ""), os.getenv("GITHUB_CLIENT_SECRET", "")
+    if not client_id or not client_secret or not code:
+        return JSONResponse({"error": "GitHub OAuth configuration or authorization code is missing."}, status_code=400)
+    redirect_uri = os.getenv("GITHUB_REDIRECT_URI") or str(request.base_url).rstrip("/") + "/auth/github/callback"
+    async with __import__("httpx").AsyncClient(timeout=20) as client:
+        token_response = await client.post("https://github.com/login/oauth/access_token",
+            headers={"Accept": "application/json"},
+            json={"client_id": client_id, "client_secret": client_secret, "code": code, "redirect_uri": redirect_uri})
+        token_data = token_response.json()
+        if token_response.status_code >= 400 or not token_data.get("access_token"):
+            return JSONResponse({"error": "GitHub did not return an access token. Check OAuth app settings."}, status_code=502)
+        user_response = await client.get("https://api.github.com/user",
+            headers={"Authorization": "Bearer " + token_data["access_token"], "Accept": "application/vnd.github+json"})
+        if user_response.status_code >= 400:
+            return JSONResponse({"error": "GitHub account verification failed."}, status_code=502)
+        user = user_response.json()
+    saved = connections.load_connections()
+    saved["github"] = {"access_token": token_data["access_token"], "login": user.get("login", ""),
+                       "id": user.get("id"), "connected_at": int(time.time())}
+    connections.save_connections(saved)
+    response = RedirectResponse("/?connection=github_connected", status_code=303)
+    response.delete_cookie("forge_oauth_state")
+    return response
+
+
+@app.post("/api/connections/github/disconnect")
+def github_disconnect():
+    saved = connections.load_connections()
+    saved.pop("github", None)
+    connections.save_connections(saved)
+    return {"ok": True}
+
+
+@app.get("/api/connections")
+def account_connections():
+    saved = connections.load_connections()
+    github = saved.get("github", {})
+    render_mcp = any(x.get("name") == "render" and x.get("connected") for x in mcp.status())
+    return {
+        "github": {"connected": bool(github.get("access_token")), "login": github.get("login", "")},
+        "render": {"connected": bool(os.getenv("RENDER_API_KEY")) or render_mcp,
+                   "method": "api_key" if os.getenv("RENDER_API_KEY") else ("mcp_oauth" if render_mcp else "not_connected")}
+    }
+
 
 @app.get("/api/providers")
 def prov(): return llm.public()
@@ -203,8 +277,10 @@ def healthz():
 
 @app.get("/api/status")
 def status():
-    return {k: bool(os.getenv(v)) for k, v in
-            {"xkiro": "XKIRO_API_KEY", "github": "GITHUB_TOKEN", "render": "RENDER_API_KEY"}.items()}
+    saved = connections.load_connections()
+    return {"xkiro": bool(os.getenv("XKIRO_API_KEY") or os.getenv("KIRO_API_KEY")),
+            "github": bool(saved.get("github", {}).get("access_token") or os.getenv("GITHUB_TOKEN")),
+            "render": bool(os.getenv("RENDER_API_KEY")) or any(x.get("name") == "render" and x.get("connected") for x in mcp.status())}
 
 @app.get("/")
 def index(): return FileResponse("static/index.html")
