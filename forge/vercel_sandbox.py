@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import os
-import shutil
+import re
+import hashlib
 import time
 from pathlib import Path
 
@@ -87,15 +88,27 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
     staged, total = _stage_files(active_root)
     limit = max(1, min(int(timeout), int(os.getenv("SANDBOX_COMMAND_TIMEOUT", "120"))))
     region = os.getenv("VERCEL_SANDBOX_REGION", "bom1").strip() or "bom1"
+    # One persistent, named Linux sandbox per workspace: package installs and
+    # user-created files survive subsequent tool calls and snapshots.
+    identity = hashlib.sha256(str(active_root).encode("utf-8")).hexdigest()[:24]
+    box_name = "forge-workspace-" + identity
+    network_enabled = os.getenv("SANDBOX_NETWORK", "0") == "1"
+    network_policy = NetworkPolicy.allow_all() if network_enabled else NetworkPolicy.deny_all()
+    image = os.getenv("VERCEL_SANDBOX_IMAGE", "").strip() or None
     box = None
     try:
-        box = await sandbox.create_sandbox(
-            execution_time_limit=limit,
-            persistent=False,
-            network_policy=NetworkPolicy.deny_all(),
-            region=region,
-            tags={"app": "forge-agent", "purpose": "command-execution"},
-        )
+        try:
+            box = await sandbox.get_sandbox(name=box_name)
+        except Exception:
+            box = await sandbox.create_sandbox(
+                name=box_name,
+                image=image,
+                execution_time_limit=limit,
+                persistent=True,
+                network_policy=network_policy,
+                region=region,
+                tags={"app": "forge-agent", "purpose": "workspace"},
+            )
         mkdir = await box.run_process("mkdir", ["-p", "/workspace"], capture_output=True, check=False)
         if getattr(mkdir, "exit_code", 1) != 0:
             return "Vercel Sandbox failed to prepare /workspace: " + str(getattr(mkdir, "stderr", ""))[:1000]
@@ -143,10 +156,12 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
                 continue
         elapsed = round(time.monotonic() - started, 2)
         evidence = "exit status unavailable" if exit_code is None else f"exit {exit_code}"
-        return f"{output[-6000:]}\n[{evidence}; synced {changed} changed text file(s); staged {len(staged)} file(s), {total // 1024} KB; {elapsed}s; region {region}; network deny-all]"
+        network_label = "allow-all" if network_enabled else "deny-all"
+        return f"{output[-6000:]}\n[{evidence}; synced {changed} changed text file(s); staged {len(staged)} file(s), {total // 1024} KB; {elapsed}s; persistent Linux sandbox {box_name}; region {region}; network {network_label}]"
     finally:
         if box is not None:
             try:
+                # Persistent sandboxes snapshot on stop and can be resumed by name.
                 await box.stop()
             except Exception:
                 pass
