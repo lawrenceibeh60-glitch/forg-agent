@@ -170,6 +170,19 @@ def run(command: str, cwd: Path, timeout: int = 120) -> str:
             if network_policy not in {"deny-all", "allow-all"}:
                 raise ValueError("SANDBOX_NETWORK_POLICY must be deny-all or allow-all")
             api = client.experimental.sandboxes
+            # Render Sandboxes are only available to workspaces that have been
+            # explicitly enabled for early access. Check this before provisioning
+            # so a workspace-level 404 is reported clearly instead of as a vague
+            # missing sandbox.
+            groups_result = api.list_groups(owner_id=owner_id)
+            groups = getattr(groups_result, "groups", None)
+            if groups is not None and not groups:
+                return (
+                    "Render Sandbox unavailable: this workspace has no sandbox group. "
+                    "Enable Render Sandboxes for workspace " + owner_id +
+                    " in the Render dashboard (New → Sandbox Group), or ask Render "
+                    "to enable early access. No command was run and no host fallback was used."
+                )
             create_args = {
                 "owner_id": owner_id,
                 "region": "oregon",
