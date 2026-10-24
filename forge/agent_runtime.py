@@ -69,6 +69,14 @@ ALIASES = {
     "available": "tool_catalog",
     "image": "image_generate image_edit web_search",
     "workflow": "workflow_save workflow_list workflow_run",
+    "sandbox": "sandbox_runtime_info sandbox_info run_command python_eval ipython_eval node_eval linux_package_install bg_start bg_logs bg_stop bg_list preview_start preview_stop",
+    "linux": "sandbox_runtime_info run_command linux_package_install ipython_eval python_eval node_eval",
+    "ipython": "ipython_eval python_eval sandbox_runtime_info",
+    "shell": "run_command sandbox_runtime_info bg_start bg_logs bg_stop bg_list",
+    "command": "run_command sandbox_runtime_info bg_start bg_logs bg_stop bg_list",
+    "package": "linux_package_install pip_install npm_install run_command sandbox_runtime_info",
+    "background": "bg_start bg_logs bg_stop bg_list run_command",
+    "preview": "preview_start preview_stop sandbox_runtime_info run_command bg_logs"
     "mcp": "mcp",
     "plugin": "mcp",
     "browser": "web_search web_fetch check_url extract_links",
@@ -79,6 +87,8 @@ CORE_TOOLS = {
     "list_files", "tree", "glob_files", "read_file", "read_many", "search_code",
     "outline", "detect_stack", "update_plan", "run_tests", "lint", "run_command",
     "git_changes", "git_log", "web_search", "web_fetch", "check_url", "tool_catalog",
+    "sandbox_runtime_info", "sandbox_info", "ipython_eval", "linux_package_install",
+    "bg_start", "bg_logs", "bg_stop", "bg_list", "preview_start", "preview_stop",
 }
 CODING_TERMS = re.compile(
     r"\b(code|coding|repo|repository|project|file|folder|bug|fix|implement|build|"
