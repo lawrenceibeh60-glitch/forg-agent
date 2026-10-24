@@ -15,6 +15,185 @@ def get(url, **k): return httpx.get(url, timeout=25, follow_redirects=True, head
 strip = lambda s: re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", s)).strip()
 O = ("string", "")
 
+
+@tool("project_map", "Build a bounded architecture map of the active workspace: entry points, manifests, tests, important directories, source files, and Python symbols. Use before substantial edits or when unfamiliar with a project.", {"path?": ("string", "workspace subdirectory, default root"), "max_files?": ("integer", "maximum files to inspect, default 180")})
+def project_map(path=".", max_files=180):
+    base = safe(path)
+    if not base.is_dir():
+        return "Not a directory: " + path
+    limit = max(20, min(int(max_files), 500))
+    entries, manifests, tests, symbols, dirs = [], [], [], [], set()
+    count = 0
+    for p in sorted(base.rglob("*")):
+        try:
+            relpath = p.relative_to(base)
+            if p.is_symlink() or SKIP & set(relpath.parts) or any(x.startswith(".") and x not in {".github"} for x in relpath.parts):
+                continue
+            if p.is_dir():
+                if len(relpath.parts) <= 2:
+                    dirs.add(relpath.as_posix() + "/")
+                continue
+            if not p.is_file() or p.name in {".env", ".netrc", "credentials.json", "secrets.json"} or p.name.startswith(".env.") or p.suffix.lower() in {".pem", ".key", ".p12", ".pfx"}:
+                continue
+            count += 1
+            name = relpath.as_posix()
+            entries.append(name)
+            if p.name in {"README.md", "pyproject.toml", "package.json", "requirements.txt", "go.mod", "Cargo.toml", "pom.xml", "Gemfile", "Makefile", "render.yaml", "Dockerfile"}:
+                manifests.append(name)
+            if re.search(r"(^|/)(test|tests|spec|specs)(/|_|\.|$)|(^|/)(test_|.*_test\.py$)", name, re.I):
+                tests.append(name)
+            if p.suffix == ".py" and len(symbols) < 240:
+                try:
+                    tree_ast = ast.parse(p.read_text(encoding="utf-8", errors="replace")[:250000])
+                    for node in ast.walk(tree_ast):
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                            symbols.append(f"{name}:{node.lineno} {type(node).__name__.replace('Def','')} {node.name}")
+                except (SyntaxError, OSError, ValueError):
+                    pass
+            if count >= limit:
+                break
+        except OSError:
+            continue
+    return json.dumps({
+        "root": str(base), "files_seen": len(entries), "truncated": count >= limit,
+        "directories": sorted(dirs)[:80], "manifests_and_entry_docs": manifests[:40],
+        "test_files": tests[:80], "python_symbols": symbols[:180],
+        "file_tree": entries[:limit],
+        "next_action": "Read the entry point and the directly related implementation/tests before editing; this is a map, not a substitute for source inspection."
+    }, ensure_ascii=False, indent=2)[:16000]
+
+
+@tool("find_symbol", "Find definitions of a named function, class, method, or exported symbol across the workspace. Use for navigation and impact analysis before editing.", {"name": ("string", "symbol name"), "path?": ("string", "optional glob, e.g. **/*.py")})
+def find_symbol(name, path="**/*"):
+    target = str(name).strip()
+    if not target or len(target) > 180:
+        return "Provide a symbol name of 1-180 characters."
+    out = []
+    rx = re.compile(r"^\s*(?:async\s+)?(?:def|class|function|interface|type|enum|struct|trait|func|fn|export\s+(?:default\s+)?)\s+" + re.escape(target) + r"\b")
+    for p in WS.glob(path):
+        if not p.is_file() or SKIP & set(p.relative_to(WS).parts) or p.is_symlink():
+            continue
+        try:
+            if p.stat().st_size > 800000:
+                continue
+            lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        if p.suffix == ".py":
+            try:
+                tree_ast = ast.parse("\n".join(lines))
+                for node in ast.walk(tree_ast):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == target:
+                        out.append(f"{rel(p)}:{node.lineno}: {type(node).__name__.replace('Def','')} {target}")
+            except SyntaxError:
+                pass
+        else:
+            for i, line in enumerate(lines, 1):
+                if rx.search(line):
+                    out.append(f"{rel(p)}:{i}: {line.strip()[:240]}")
+        if len(out) >= 100:
+            break
+    return "\n".join(out) if out else f"No definition for {target!r} found. Broaden the glob or use search_code."
+
+
+@tool("find_references", "Find usages/imports/call sites of a symbol or literal across source files, excluding generated/vendor directories. Use before renaming or changing an API.", {"name": ("string", "symbol or literal text"), "glob?": ("string", "file glob, default source files")})
+def find_references(name, glob="*"):
+    target = str(name).strip()
+    if not target or len(target) > 180:
+        return "Provide a search term of 1-180 characters."
+    rx = re.compile(r"\b" + re.escape(target) + r"\b")
+    allowed = {".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".json", ".md", ".go", ".rs", ".java", ".c", ".h", ".sql", ".yaml", ".yml"}
+    out = []
+    for p in WS.rglob(glob):
+        if not p.is_file() or p.is_symlink() or p.suffix.lower() not in allowed or SKIP & set(p.relative_to(WS).parts):
+            continue
+        if p.name in {".env", ".netrc", "credentials.json", "secrets.json"} or p.name.startswith(".env.") or p.suffix.lower() in {".pem", ".key", ".p12", ".pfx"}:
+            continue
+        try:
+            if p.stat().st_size > 800000:
+                continue
+            for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+                if rx.search(line):
+                    out.append(f"{rel(p)}:{i}: {line.strip()[:220]}")
+                    if len(out) >= 160:
+                        return "\n".join(out) + "\n[results truncated]"
+        except OSError:
+            continue
+    return "\n".join(out) if out else f"No references found for {target!r}."
+
+
+@tool("dependency_graph", "Inspect local Python and JavaScript/TypeScript imports and report likely internal module dependencies. Heuristic analysis only; use to trace impact before refactoring.", {"path?": ("string", "workspace subdirectory, default root"), "max_files?": ("integer", "maximum source files, default 160")})
+def dependency_graph(path=".", max_files=160):
+    base = safe(path)
+    if not base.is_dir():
+        return "Not a directory: " + path
+    limit = max(20, min(int(max_files), 400))
+    source_exts = {".py", ".js", ".ts", ".tsx", ".jsx"}
+    sources = []
+    for p in base.rglob("*"):
+        if not p.is_file() or p.is_symlink() or p.suffix.lower() not in source_exts or SKIP & set(p.relative_to(base).parts):
+            continue
+        sources.append(p)
+        if len(sources) >= limit:
+            break
+    known = {}
+    for p in sources:
+        relpath = p.relative_to(base).as_posix()
+        stem = p.with_suffix("").name
+        known.setdefault(stem, relpath)
+        known.setdefault(p.relative_to(base).with_suffix("").as_posix().replace("/", "."), relpath)
+    edges, unresolved = [], []
+    for p in sources:
+        relpath = p.relative_to(base).as_posix()
+        try:
+            content = p.read_text(encoding="utf-8", errors="replace")[:350000]
+        except OSError:
+            continue
+        imports = []
+        if p.suffix == ".py":
+            try:
+                tree_ast = ast.parse(content)
+                for node in ast.walk(tree_ast):
+                    if isinstance(node, ast.Import):
+                        imports.extend(alias.name for alias in node.names)
+                    elif isinstance(node, ast.ImportFrom) and node.module:
+                        imports.append(node.module)
+            except SyntaxError:
+                imports.extend(re.findall(r"(?m)^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", content))
+                imports = [x for pair in imports for x in pair if x]
+        else:
+            imports.extend(re.findall(r"""(?:from\s+|import\s*)['"]([^'"]+)['"]""", content))
+        for mod in sorted(set(imports)):
+            if mod.startswith((".", "/")):
+                candidate = mod.lstrip("./").split("/")[0].split(".")[0]
+                resolved = known.get(candidate) or known.get(mod.replace("/", "."))
+                if resolved:
+                    edges.append({"from": relpath, "import": mod, "to": resolved})
+                else:
+                    unresolved.append({"from": relpath, "import": mod})
+            elif mod.split(".")[0] in known:
+                edges.append({"from": relpath, "import": mod, "to": known[mod.split(".")[0]]})
+    return json.dumps({"files_analyzed": len(sources), "truncated": len(sources) >= limit,
+                       "internal_edges": edges[:300], "unresolved_relative_imports": unresolved[:80],
+                       "note": "Best-effort static heuristic; dynamic imports, aliases, package resolution and generated code may be missed."},
+                      ensure_ascii=False, indent=2)[:16000]
+
+@tool("tool_catalog", "Discover available Forge tools by capability when the current tool selection does not expose what you need. Returns matching tool names and descriptions; use the exact returned name in the next tool call.", {"query": ("string", "capability or task to search for"), "limit?": ("integer", "maximum matches, default 20")})
+def tool_catalog(query, limit=20):
+    import tools as registry
+    terms = [x for x in re.findall(r"[a-zA-Z0-9_]{2,}", query.lower()) if x not in {"the", "and", "for", "with", "from", "tool", "tools"}]
+    matches = []
+    for schema in registry.SCHEMAS:
+        fn = schema.get("function", {})
+        name, desc = fn.get("name", ""), fn.get("description", "")
+        haystack = (name + " " + desc).lower()
+        score = sum(4 if term in name.lower() else 1 for term in terms if term in haystack)
+        if score:
+            matches.append((score, name, desc))
+    matches.sort(key=lambda item: (-item[0], item[1]))
+    maximum = max(1, min(int(limit), 40))
+    return json.dumps([{"name": n, "description": d[:300]} for _, n, d in matches[:maximum]], ensure_ascii=False, indent=2) if matches else "No matching tools. Try a broader capability query."
+
 # ================= files =================
 @tool("glob_files", "Find files by glob pattern, e.g. **/*.py", {"pattern": ("string", "glob")})
 def glob_files(pattern): return "\n".join(sorted(rel(p) for p in WS.glob(pattern) if p.is_file())[:300]) or "none"

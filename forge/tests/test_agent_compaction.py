@@ -24,7 +24,9 @@ class ConversationCompactionTests(unittest.IsolatedAsyncioTestCase):
         async def fake_stream(_messages, _tools, purpose="general"):
             yield "message", {"role": "assistant", "content": "Older history summary: prior requests and decisions."}
 
-        with patch.object(app.llm, "stream", fake_stream):
+        # Keep this regression deterministic even when production's default
+        # context budget is tuned for larger-context models.
+        with patch.dict("os.environ", {"FORGE_CONTEXT_BUDGET_CHARS": "32000"}), patch.object(app.llm, "stream", fake_stream):
             await app.compact(messages)
 
         self.assertIn("[Conversation continuity summary", messages[1]["content"])
