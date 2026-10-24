@@ -23,6 +23,7 @@ def load():
     if not isinstance(d, dict):
         d = {"active": None, "providers": []}
     d.setdefault("providers", [])
+    d.setdefault("active", None)
     xkiro_key = os.getenv("XKIRO_API_KEY") or os.getenv("KIRO_API_KEY")
     if xkiro_key:
         p = next((p for p in d["providers"] if p.get("id") == "xkiro"), None)
