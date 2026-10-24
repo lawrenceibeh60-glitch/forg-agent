@@ -112,7 +112,10 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
             box = await sandbox.create_sandbox(
                 name=box_name,
                 image=image,
-                execution_time_limit=limit,
+                # Command timeout and workspace lifetime are separate controls.
+                # Keep the named VM alive so background servers and watchers survive
+                # later tool calls; individual commands still use kill_after=limit.
+                execution_time_limit=max(300, min(int(os.getenv("SANDBOX_SESSION_TIMEOUT", "2700")), 2700)),
                 persistent=True,
                 region=region,
                 network_policy=network_policy,
@@ -171,12 +174,10 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
         network_label = "allow-all" if network_enabled else "deny-all"
         return f"{output[-6000:]}\n[{evidence}; copied back {changed} changed text file(s); staged {len(staged)} text file(s), {total} bytes; {elapsed}s; persistent Linux sandbox {box_name}; region {region}; network {network_label}]"
     finally:
-        if box is not None:
-            try:
-                # Persistent sandboxes snapshot on stop and can be resumed by name.
-                await box.stop()
-            except Exception:
-                pass
+        # Intentionally keep the persistent workspace sandbox alive between commands.
+        # Calling stop() kills background processes, including dev/preview servers.
+        # Vercel enforces execution_time_limit; later commands resume this named VM.
+        pass
 
 
 def run(command: str, cwd: Path, timeout: int = 120) -> str:
