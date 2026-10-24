@@ -13,3 +13,7 @@ venv/
 forge/data/
 forge/workspace/
 forge/.pytest_cache/
+
+# Neon project link is local and Node dependencies are reproducible
+.neon
+node_modules/
