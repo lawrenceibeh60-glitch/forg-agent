@@ -131,3 +131,38 @@ def test_eval_run_requires_explicit_token_cost_confirmation():
     response = client.post("/api/evals/run", json={"confirm": False, "limit": 1})
     assert response.status_code == 400
     assert "token-cost warning" in response.json()["error"]
+
+
+@pytest.mark.asyncio
+async def test_task_resume_continues_the_same_persisted_task(monkeypatch):
+    original = {
+        "id": "task-resume-123",
+        "session_id": "test-session",
+        "goal": "Finish the original task",
+        "status": "blocked",
+        "checkpoint": {"phase": "client_cancelled", "turn": 7},
+        "plan": [{"label": "Implement", "status": "in_progress"}],
+        "completed": [{"label": "Inspect"}],
+        "current_step": "Connection interrupted",
+        "last_error": "Client disconnected",
+    }
+    monkeypatch.setattr(app.tasks, "get", lambda task_id: original if task_id == original["id"] else None)
+
+    async def capture_resume(request):
+        return request
+
+    monkeypatch.setattr(app, "chat", capture_resume)
+    request = await app.task_resume(original["id"], app.ResumeReq())
+
+    assert request.session == original["session_id"]
+    assert request.task_id == original["id"]
+    assert "Finish the original task" in request.message
+    assert "Client disconnected" in request.message
+
+
+@pytest.mark.asyncio
+async def test_task_resume_rejects_completed_tasks(monkeypatch):
+    original = {"id": "task-done", "status": "completed"}
+    monkeypatch.setattr(app.tasks, "get", lambda task_id: original)
+    response = await app.task_resume(original["id"], app.ResumeReq())
+    assert response.status_code == 409
