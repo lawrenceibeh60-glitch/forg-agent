@@ -16,7 +16,29 @@ EDIT = {"write_file", "edit_file", "apply_patch", "append_file", "bulk_replace"}
 VERIFY = {"run_command", "run_tests", "lint", "python_eval", "node_eval", "bg_logs", "bg_start", "check_url", "http_request"}
 DIS = Path("data/disabled.json")
 def disabled(): return set(json.loads(DIS.read_text())) if DIS.exists() else set()
-def schemas(): d = disabled(); return [s for s in tools.SCHEMAS + mcp.schemas() if s["function"]["name"] not in d]
+def schemas():
+    # Stable, unique function names avoid malformed tool lists when an MCP server
+    # happens to expose a name already provided by a built-in tool.
+    d = disabled()
+    result, seen = [], set()
+    for s in tools.SCHEMAS + mcp.schemas():
+        name = s.get("function", {}).get("name", "")
+        if name and name not in d and name not in seen:
+            result.append(s); seen.add(name)
+    return result
+
+def explicitly_authorized(message, name):
+    """A clear user instruction can authorize its matching ordinary external action."""
+    t = (message or "").lower()
+    if name == "repo_commit_push":
+        return bool(re.search(r"\b(commit|push|publish|upload)\b", t) and re.search(r"\b(github|remote|repo|repository|branch)\b", t))
+    if name == "github_put_file":
+        return bool(re.search(r"\b(commit|push|publish|upload|save)\b", t) and re.search(r"\b(github|repo|repository)\b", t))
+    if name == "publish_to_github":
+        return bool(re.search(r"\b(publish|create|upload|push)\b", t) and re.search(r"\b(github|repo|repository)\b", t))
+    if name == "render_deploy":
+        return bool(re.search(r"\b(deploy|redeploy|ship|release)\b", t))
+    return False
 CATS = [(r"^mcp__","plug"),(r"^(repo_|publish)","branch"),(r"^(bg_|sandbox)","term"),(r"^(think|update_plan|remember)","bulb"),(r"^render","cloud"),(r"^git","branch"),(r"search_code|^find_|^glob|outline","search"),(r"^(web|http|check_url|extract_links|pypi|npm_info|stack|dns|port|wiki)","globe"),(r"sql|csv|json|^env|stats|dependency","db"),(r"^(run|python|node|pip|npm_install|docker|process|lint|detect|system|apply)","term"),(r"file|dir|tree|move|delete|archive|extract|read|write|append|edit|bulk","file")]
 def cat(n): return next((c for p, c in CATS if re.search(p, n)), "wrench")
 SD = Path("data/sessions"); SD.mkdir(parents=True, exist_ok=True)
@@ -101,17 +123,24 @@ async def chat(req: Req):
                     if name in EDIT: edited, verified = True, False
                     if name in VERIFY: verified = True
                     ok = True
-                    if (name in RISKY or name.startswith("mcp__")) and not req.auto:
+                    if (name.startswith("mcp__") and not req.auto) or ((name in RISKY) and not req.auto and not explicitly_authorized(req.message, name)):
                         fut = asyncio.get_running_loop().create_future(); PENDING[c["id"]] = fut
                         yield sse("approval", {"id": c["id"], "name": name})
                         try: ok = await asyncio.wait_for(fut, 300)
                         except asyncio.TimeoutError: ok = False
                         PENDING.pop(c["id"], None)
                     try:
-                        if not ok: out = "denied by user"
-                        elif name.startswith("mcp__"): out = await mcp.call(name, args)
-                        else: out = await asyncio.to_thread(tools.REG[name], **args)
-                    except Exception as e: out = f"error: {e}"
+                        if not ok:
+                            out = "Action was denied by the user. Do not retry the same action unless the user changes their decision."
+                        elif name.startswith("mcp__"):
+                            out = await mcp.call(name, args)
+                        elif name not in tools.REG:
+                            available = ", ".join(sorted(tools.REG)[:80])
+                            out = f"Unknown tool '{name}'. Do not retry that name. Choose a matching available tool instead. Available built-in tools include: {available}"
+                        else:
+                            out = await asyncio.to_thread(tools.REG[name], **args)
+                    except Exception as e:
+                        out = f"Tool {name} failed: {type(e).__name__}: {e}. Diagnose this result and try a different valid approach if possible."
                     yield sse("tool_result", {"id": c["id"], "output": str(out)[:4000]})
                     msgs.append({"role": "tool", "tool_call_id": c["id"], "content": str(out)[:12000]})
         except Exception as e:
