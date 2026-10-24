@@ -53,3 +53,17 @@ def test_classify_task_uses_intent():
     assert agent_runtime.classify_task("Add dark mode to the interface") == "engineering"
     assert agent_runtime.classify_task("Research the latest documentation and compare sources") == "research"
     assert agent_runtime.classify_task("Explain the idea of voltage") == "general"
+
+
+def test_verification_requires_successful_exit_evidence():
+    assert agent_runtime.verification_succeeded("run_tests", "4 passed\n[exit 0]")
+    assert not agent_runtime.verification_succeeded("run_tests", "2 failed\n[exit 1]")
+    assert agent_runtime.verification_succeeded("check_url", "200 in 0.12s")
+    assert not agent_runtime.verification_succeeded("check_url", "503 in 0.12s")
+    assert not agent_runtime.verification_succeeded("bg_start", "started")
+
+
+def test_verification_policy_block_is_not_retried_blindly():
+    output = "no isolated command runner is configured; refusing to execute on the host"
+    assert agent_runtime.verification_unavailable(output)
+    assert not agent_runtime.verification_succeeded("run_tests", output)
