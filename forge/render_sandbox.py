@@ -152,7 +152,10 @@ def run(command: str, cwd: Path, timeout: int = 120) -> str:
     except (TypeError, ValueError):
         configured_timeout = 120
     timeout = max(1, min(int(timeout), max(1, min(configured_timeout, 900))))
-    client = Render(token=os.getenv("RENDER_API_KEY"), owner_id=os.getenv("RENDER_WORKSPACE_ID"))
+    # Render Sandboxes are currently provisioned in Oregon during early access.
+    # Pin workspace and region so the SDK cannot inherit a different default context.
+    owner_id = os.getenv("RENDER_WORKSPACE_ID", "").strip()
+    client = Render(token=os.getenv("RENDER_API_KEY"), owner_id=owner_id, region="oregon")
     sandbox = None
     with tempfile.TemporaryDirectory(prefix="forge-in-") as tmp_in, tempfile.TemporaryDirectory(prefix="forge-out-") as tmp_out:
         stage_in = Path(tmp_in) / "workspace"
@@ -167,7 +170,12 @@ def run(command: str, cwd: Path, timeout: int = 120) -> str:
             if network_policy not in {"deny-all", "allow-all"}:
                 raise ValueError("SANDBOX_NETWORK_POLICY must be deny-all or allow-all")
             api = client.experimental.sandboxes
-            create_args = {"timeout_seconds": max(60, timeout + 30), "network_policy": network_policy}
+            create_args = {
+                "owner_id": owner_id,
+                "region": "oregon",
+                "timeout_seconds": max(60, timeout + 30),
+                "network_policy": network_policy,
+            }
             # A named snapshot can preinstall tools such as IPython while the
             # live sandbox still starts with a deny-all network policy.
             snapshot_name = os.getenv("SANDBOX_SNAPSHOT_NAME", "").strip()
@@ -181,18 +189,18 @@ def run(command: str, cwd: Path, timeout: int = 120) -> str:
                 if time.monotonic() >= deadline:
                     raise TimeoutError("Render sandbox startup timed out")
                 time.sleep(2)
-                sandbox = api.from_id(sandbox.id)
-            api.copy_to(sandbox.id, str(stage_in), "/workspace")
+                sandbox = api.from_id(sandbox.id, owner_id=owner_id)
+            api.copy_to(sandbox.id, str(stage_in), "/workspace", owner_id=owner_id)
             import shlex
             remote_cwd = "/workspace" if relative_cwd == "." else "/workspace/" + relative_cwd
-            events = api.exec(sandbox.id, "cd " + shlex.quote(remote_cwd) + " && " + command)
+            events = api.exec(sandbox.id, "cd " + shlex.quote(remote_cwd) + " && " + command, owner_id=owner_id)
             output, exit_code = [], None
             for event in events:
                 if hasattr(event, "exit_code"):
                     exit_code = event.exit_code
                 elif getattr(event, "data", ""):
                     output.append(event.data)
-            api.copy_from(sandbox.id, "/workspace", str(stage_out))
+            api.copy_from(sandbox.id, "/workspace", str(stage_out), owner_id=owner_id)
             synced = _sync_back(stage_out, active_root)
             result = "".join(output).strip()[-6000:] or "(no output)"
             evidence = "exit status unavailable; verification cannot be confirmed" if exit_code is None else f"exit {exit_code}"
@@ -202,5 +210,5 @@ def run(command: str, cwd: Path, timeout: int = 120) -> str:
             return "Render sandbox creation failed closed: " + detail
         finally:
             if sandbox is not None:
-                try: api.terminate(sandbox.id)
+                try: api.terminate(sandbox.id, owner_id=owner_id)
                 except Exception: pass
