@@ -101,7 +101,7 @@ def find_references(name, glob="*"):
     target = str(name).strip()
     if not target or len(target) > 180:
         return "Provide a search term of 1-180 characters."
-    rx = re.compile(r"(?<![A-Za-z0-9_$])" + re.escape(target) + r"(?![A-Za-z0-9_$)")
+    rx = re.compile(r"\b" + re.escape(target) + r"\b")
     allowed = {".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".json", ".md", ".go", ".rs", ".java", ".c", ".h", ".sql", ".yaml", ".yml"}
     out = []
     for p in WS.rglob(glob):
