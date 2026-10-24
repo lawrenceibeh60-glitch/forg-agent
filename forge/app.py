@@ -264,6 +264,11 @@ async def chat(req: Req):
                     if name != "update_plan":
                         checkpoint_fields["current_step"] = f"Reviewed result from {name}"
                     tasks.update(task_id, **checkpoint_fields)
+        except asyncio.CancelledError:
+            task_status = "blocked"
+            tasks.update(task_id, status="blocked", last_error="The streaming request was interrupted; resume from the saved checkpoint.", current_step="Connection interrupted; checkpoint saved", checkpoint={"phase": "client_cancelled", "message_count": len(msgs), "turn": locals().get("turn", 0)})
+            save(sid, msgs)
+            raise
         except Exception as e:
             task_status = "failed"
             tasks.update(task_id, status="failed", last_error=f"{type(e).__name__}: {e}", current_step="Agent execution failed", checkpoint={"phase": "error", "message_count": len(msgs)})
