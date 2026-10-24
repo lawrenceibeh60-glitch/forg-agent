@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import re, shutil, llm, tools, tools_extra, tools_ops, connections
+import re, shutil, llm, tools, tools_extra, tools_ops, connections, tasks
 from mcp_client import mcp
 
 from prompts import SYSTEM
@@ -41,7 +41,7 @@ def explicitly_authorized(message, name):
     return False
 CATS = [(r"^mcp__","plug"),(r"^(repo_|publish)","branch"),(r"^(bg_|sandbox)","term"),(r"^(think|update_plan|remember)","bulb"),(r"^render","cloud"),(r"^git","branch"),(r"search_code|^find_|^glob|outline","search"),(r"^(web|http|check_url|extract_links|pypi|npm_info|stack|dns|port|wiki)","globe"),(r"sql|csv|json|^env|stats|dependency","db"),(r"^(run|python|node|pip|npm_install|docker|process|lint|detect|system|apply)","term"),(r"file|dir|tree|move|delete|archive|extract|read|write|append|edit|bulk","file")]
 def cat(n): return next((c for p, c in CATS if re.search(p, n)), "wrench")
-SD = Path("data/sessions"); SD.mkdir(parents=True, exist_ok=True)
+SD = Path(os.getenv("FORGE_SESSION_DIR", "data/sessions")); SD.mkdir(parents=True, exist_ok=True)
 PENDING = {}
 
 @asynccontextmanager
@@ -160,14 +160,21 @@ async def chat(req: Req):
             parts.append({"type": "image_url", "image_url": {"url": image_data}})
         user_content = parts
     msgs.append({"role": "user", "content": user_content})
+    task = tasks.create(sid, req.message)
+    task_id = task["id"]
+    tasks.update(task_id, checkpoint={"phase": "starting", "turn": 0, "tool_calls": 0, "images_attached": len(req.images)})
 
     async def run():
-        yield sse("session", {"id": sid})
+        yield sse("session", {"id": sid, "task_id": task_id})
+        yield sse("task", {"id": task_id, "status": "running"})
+        calls = []
+        task_status = "completed"
         try:
             edited = verified = nudged = completion_checked = False
             max_turns = max(40, min(80, int(os.getenv("FORGE_MAX_AGENT_TURNS", "60"))))
             for turn in range(1, max_turns + 1):
-                yield sse("progress", {"text": f"Working through the task · reasoning cycle {turn}", "turn": turn})
+                tasks.update(task_id, current_step=f"Reasoning cycle {turn}", checkpoint={"phase": "reasoning", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs)})
+                yield sse("progress", {"text": f"Working through the task · reasoning cycle {turn}", "turn": turn, "task_id": task_id})
                 tools.use(sid)
                 await compact(msgs)
                 m = None
@@ -187,7 +194,9 @@ async def chat(req: Req):
                         yield sse("progress", {"text": "Reviewing whether the original request is actually complete."})
                         msgs.append({"role": "user", "content": "[Completion review] Compare the original request with everything completed so far. Do not merely repeat your previous answer. If meaningful requested steps remain and you can safely make progress, continue using tools now. Check results and recover from errors. If the task is complete, or a genuine external blocker remains, provide the final answer with concrete evidence and limitations. Do not invent work or loop pointlessly."})
                         continue
+                    tasks.update(task_id, status="completed", current_step="Final answer delivered", checkpoint={"phase": "completed", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs), "verified": bool(verified)})
                     break
+                tasks.update(task_id, current_step=f"Processing {len(calls)} tool call(s)", checkpoint={"phase": "tool_execution", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs)})
                 for c in calls:
                     name, raw = c["function"]["name"], c["function"]["arguments"]
                     try: args = json.loads(raw or "{}")
@@ -217,8 +226,11 @@ async def chat(req: Req):
                     yield sse("tool_result", {"id": c["id"], "output": str(out)[:4000]})
                     yield sse("progress", {"text": f"Received result from {name}; evaluating the result and next step."})
                     msgs.append({"role": "tool", "tool_call_id": c["id"], "content": str(out)[:12000]})
+                    tasks.update(task_id, current_step=f"Reviewed result from {name}", checkpoint={"phase": "tool_result", "turn": turn, "last_tool": name, "last_tool_result": str(out)[:1500], "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs)})
         except Exception as e:
-            yield sse("error", {"error": str(e)})
+            task_status = "failed"
+            tasks.update(task_id, status="failed", last_error=f"{type(e).__name__}: {e}", current_step="Agent execution failed", checkpoint={"phase": "error", "message_count": len(msgs)})
+            yield sse("error", {"error": str(e), "task_id": task_id})
         if "turn" in locals() and turn >= max_turns and calls:
             msgs.append({"role": "user", "content": "[Agent iteration limit reached] You reached the current execution budget. Do not claim full completion unless verified. Summarize completed work, what you verified, and the specific remaining steps or blocker."})
             yield sse("progress", {"text": "Reached the current work budget; preparing an honest checkpoint."})
@@ -233,7 +245,13 @@ async def chat(req: Req):
             except Exception:
                 pass
         save(sid, msgs)
-        yield sse("done", {})
+        if task_status == "completed":
+            tasks.update(task_id, status="completed", current_step="Conversation saved", checkpoint={"phase": "saved", "message_count": len(msgs), "turn": locals().get("turn", 0), "tool_calls": sum(1 for m in msgs if m.get("role") == "tool")})
+        elif task_status not in ("failed", "blocked"):
+            tasks.update(task_id, status=task_status, checkpoint={"phase": task_status, "message_count": len(msgs)})
+        latest = tasks.get(task_id)
+        yield sse("task", {"id": task_id, "status": latest.get("status") if latest else task_status})
+        yield sse("done", {"task_id": task_id})
     return StreamingResponse(run(), media_type="text/event-stream")
 
 PW = os.getenv("APP_PASSWORD")
@@ -393,6 +411,21 @@ async def approve(a: Appr):
     f = PENDING.get(a.id)
     if f and not f.done(): f.set_result(a.ok)
     return {"ok": True}
+
+@app.get("/api/tasks")
+def task_list(limit: int = 30):
+    return {"tasks": tasks.list_recent(limit), "storage": tasks.health()}
+
+@app.get("/api/tasks/{task_id}")
+def task_detail(task_id: str):
+    task = tasks.get(task_id)
+    if not task:
+        return JSONResponse({"error": "task not found"}, status_code=404)
+    return task
+
+@app.get("/api/sessions/{sid}/tasks")
+def session_tasks(sid: str, limit: int = 10):
+    return {"tasks": tasks.list_for_session(sid, limit)}
 
 @app.get("/api/sessions")
 def sessions():
