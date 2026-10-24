@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import agent_runtime
+import app
 import render_sandbox
 
 
