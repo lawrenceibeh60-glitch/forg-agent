@@ -137,7 +137,7 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
         try:
             box = await sandbox.get_sandbox(name=name)
             # A prior preview for this session may have left old processes behind.
-            await box.run_process("bash", ["-lc", "pkill -f 'vite|next|uvicorn|flask|http.server' 2>/dev/null || true"],
+            await box.run_process("bash", ["-lc", "if [ -f /tmp/forge-preview-app.pid ]; then kill $(cat /tmp/forge-preview-app.pid) 2>/dev/null || true; rm -f /tmp/forge-preview-app.pid; fi"],
                                   capture_output=True, check=False, timeout=10)
         except Exception:
             box = await sandbox.create_sandbox(
