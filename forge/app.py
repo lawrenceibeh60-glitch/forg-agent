@@ -787,7 +787,7 @@ def workflows_run(workflow_id: str, sid: str):
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
 
-@app.get("/api/evals/catalog")@app.get("/api/evals/catalog")
+@app.get("/api/evals/catalog")
 def evals_catalog():
     return project_intelligence.evaluation_catalog()
 
