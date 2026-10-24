@@ -34,6 +34,38 @@ def test_general_question_does_not_receive_every_tool():
     assert "delete_file" not in {x["function"]["name"] for x in selected}
 
 
+
+def test_failure_classification_distinguishes_capability_from_code_failure():
+    assert agent_runtime.classify_failure(
+        "run_command", "No isolated command runner is configured; refusing to execute on the host"
+    ) == "configuration_or_capability"
+    assert agent_runtime.classify_failure(
+        "run_tests", "AssertionError: expected 2, got 1 [exit 1]"
+    ) == "task_or_code_failure"
+
+
+def test_failure_classification_identifies_authorization_and_transient_errors():
+    assert agent_runtime.classify_failure("github_put_file", "403 Forbidden") == "authorization"
+    assert agent_runtime.classify_failure("check_url", "HTTP 503 service unavailable") == "transient_infrastructure"
+
+
+def test_recovery_policy_does_not_turn_a_blocker_into_permission_bypass():
+    instruction = agent_runtime.recovery_instruction(
+        "authorization", "github_merge_pr", "Action was denied by the user."
+    )
+    assert "Do not bypass approval" in instruction
+    assert "github_merge_pr" in instruction
+
+
+def test_recovery_policy_for_code_failure_requires_repair_and_reverification():
+    instruction = agent_runtime.recovery_instruction(
+        "task_or_code_failure", "run_tests", "AssertionError: expected 2, got 1"
+    )
+    assert "targeted repair" in instruction
+    assert "rerun the narrowest" in instruction
+
+
+
 def test_workspace_snapshot_includes_manifests_and_excludes_secret_values(tmp_path):
     (tmp_path / "README.md").write_text("# Demo\nA useful app")
     (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\nAPI_KEY = \"top-secret-manifest-value\"")
