@@ -1,0 +1,2 @@
+# Root-level dependency entrypoint for Render deployments configured at repository root.
+-r forge/requirements.txt
