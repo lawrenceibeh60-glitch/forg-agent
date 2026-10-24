@@ -20,7 +20,7 @@ Open http://localhost:8000. Use Python 3.12 rather than Python 3.14 for this pin
 
 1. Push this repository to GitHub.
 2. In Render, choose **New → Blueprint** and select this repository; Render will read the root `render.yaml`.
-3. Set the prompted secret values: `XKIRO_API_KEY`, `APP_PASSWORD`, and any integrations you need (`GITHUB_TOKEN`, `RENDER_API_KEY`). Keep secrets in Render's Environment dashboard, not in Git.
+3. Set `XKIRO_API_KEY` and `APP_PASSWORD`. For interactive GitHub sign-in, register a GitHub OAuth App once and set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_REDIRECT_URI` (`https://YOUR-SERVICE.onrender.com/auth/github/callback`), and a stable `OAUTH_ENCRYPTION_SECRET` in Render Environment. Users then click **Connect GitHub**; they do not paste a personal GitHub token. The callback URL must exactly match the OAuth App setting. Keep secrets in Render's Environment dashboard, not in Git.
 4. Deploy. Render health checks use `/healthz`.
 
 The Blueprint runs the service from `forge/` with `python -m pip install -r requirements.txt` and `uvicorn app:app --host 0.0.0.0 --port $PORT`.
@@ -33,4 +33,4 @@ The Blueprint runs the service from `forge/` with `python -m pip install -r requ
 - MCP: Settings → paste an `{"mcpServers": {...}}` config (stdio or HTTP/SSE). Stdio MCP servers need their runtimes installed.
 - Safety: shell, git, PR, deploy and MCP tools ask for approval unless Auto-approve is enabled.
 - Sandbox: each chat gets its own `workspace/<chat-id>` folder; code can be created, run and downloaded as a ZIP. `SANDBOX_DOCKER=1` enables optional Docker isolation when Docker is available.
-- GitHub and Render integrations use `GITHUB_TOKEN` and `RENDER_API_KEY`.
+- GitHub supports interactive OAuth sign-in and stores its access token encrypted at rest. `GITHUB_TOKEN` remains an optional service-account fallback. The OAuth app client ID/secret are configured once by the deployment owner, not entered by each user. Render's public REST API still requires a Render API key. Render also provides an OAuth-enabled MCP server, but the current MCP client does not yet implement its browser callback flow; the UI reports Render as connected only when an API key or an actual connected Render MCP server is present.
