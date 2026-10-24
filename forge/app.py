@@ -260,7 +260,10 @@ async def chat(req: Req):
                                 if re.search(r"\[[xX]\]", line):
                                     plan_done.append(label[:300])
                         tasks.update(task_id, plan=plan_items, completed=plan_done, current_step=next((item for item in plan_items if item not in plan_done), "Plan recorded"))
-                    tasks.update(task_id, current_step=f"Reviewed result from {name}", checkpoint={"phase": "tool_result", "turn": turn, "last_tool": name, "last_tool_result": str(out)[:1500], "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs)})
+                    checkpoint_fields = {"checkpoint": {"phase": "tool_result", "turn": turn, "last_tool": name, "last_tool_result": str(out)[:1500], "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs)}}
+                    if name != "update_plan":
+                        checkpoint_fields["current_step"] = f"Reviewed result from {name}"
+                    tasks.update(task_id, **checkpoint_fields)
         except Exception as e:
             task_status = "failed"
             tasks.update(task_id, status="failed", last_error=f"{type(e).__name__}: {e}", current_step="Agent execution failed", checkpoint={"phase": "error", "message_count": len(msgs)})
