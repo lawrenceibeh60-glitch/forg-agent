@@ -51,7 +51,7 @@ PENDING = {}
 @asynccontextmanager
 async def life(_):
     try:
-        recovered = tasks.recover_interrupted()
+        recovered = tasks.recover_interrupted(stale_after=300)
         if recovered:
             print(f"Recovered {recovered} interrupted task checkpoint(s).")
     except Exception as exc:
@@ -163,11 +163,18 @@ def session_path(sid):
 
 
 def load(sid):
+    # Prefer shared durable storage so requests can land on different instances.
+    saved = tasks.load_session(sid)
+    if saved is not None:
+        return saved
     f = session_path(sid)
     return json.loads(f.read_text()) if f.exists() else [{"role": "system", "content": system()}]
 
 
 def save(sid, msgs):
+    # Database is authoritative when DATABASE_URL is configured. Keep a local
+    # atomic copy as a development fallback and for gradual migration.
+    tasks.save_session(sid, msgs)
     f = session_path(sid)
     temp = f.with_suffix(".tmp")
     temp.write_text(json.dumps(msgs, ensure_ascii=False))
