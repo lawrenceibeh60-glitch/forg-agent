@@ -116,7 +116,7 @@ async def compact(msgs):
     try:
         async for kind, value in llm.stream(
             [{"role": "system", "content": instructions},
-             {"role": "user", "content": txt[:50000]}], []
+             {"role": "user", "content": txt[:50000]}], [], purpose="summary"
         ):
             if kind == "message":
                 summary = value.get("content") or ""
@@ -204,7 +204,7 @@ async def chat(req: Req):
                 await compact(msgs)
                 m = None
                 turn_text = []
-                async for kind, val in llm.stream(msgs, schemas()):
+                async for kind, val in llm.stream(msgs, schemas(), purpose="coding"):
                     if kind == "text": turn_text.append(val)
                     else: m = val
                 msgs.append({k: v for k, v in m.items() if v is not None})
@@ -825,7 +825,7 @@ async def specialist_review(body: TeamReviewRequest):
         output = []
         final_report = ""
         try:
-            async for kind, value in llm.stream(messages, []):
+            async for kind, value in llm.stream(messages, [], purpose="review"):
                 if kind == "text":
                     output.append(str(value))
                 elif isinstance(value, dict):
