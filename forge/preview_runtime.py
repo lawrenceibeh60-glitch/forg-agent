@@ -1,7 +1,7 @@
 """Live preview sessions on Vercel Sandbox with exposed HTTPS routes.
 
 Each preview runs in its own isolated Linux VM. Vercel's port routing replaces
-Render sandboxes and Cloudflare Quick Tunnels; preview links are public to anyone
+Vercel Sandbox sessions and exposed-port HTTPS routes; preview links are public to anyone
 who has the URL and expire when the sandbox is destroyed or times out.
 """
 from __future__ import annotations
