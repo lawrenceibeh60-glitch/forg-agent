@@ -449,13 +449,15 @@ def sandbox_status():
 def sandbox_test():
     """Explicit, authenticated end-to-end test of Render sandbox provisioning and execution."""
     try:
+        if not PW:
+            return JSONResponse({"ok": False, "error": "Set APP_PASSWORD before using the sandbox test endpoint."}, status_code=503)
         import render_sandbox
         if not render_sandbox.configured():
             return JSONResponse({"ok": False, "error": render_sandbox.status().get("reason", "Sandbox is not configured.")}, status_code=503)
         workspace_root = Path(os.getenv("WORKSPACE", "workspace")).resolve()
         workspace_root.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".forge-sandbox-test-", dir=workspace_root) as tmp:
-            result = render_sandbox.run("printf 'FORGE_SANDBOX_OK\\\\n'", Path(tmp), timeout=45)
+            result = render_sandbox.run("printf FORGE_SANDBOX_OK", Path(tmp), timeout=45)
         ok = "FORGE_SANDBOX_OK" in result and "[exit 0;" in result
         if not ok:
             return JSONResponse({"ok": False, "error": result[-1200:]}, status_code=502)
