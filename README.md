@@ -13,6 +13,30 @@ Forge is a streaming, tool-using AI workspace with configurable OpenAI-compatibl
 - **Sandbox:** command execution uses Render-managed, ephemeral sandboxes when `SANDBOX_RENDER=1` and Render credentials are configured. The web service itself never executes arbitrary project commands in this mode. Workspace sync excludes environment files, keys, git metadata, and dependency caches; output sync is size-limited and never deletes host files. Outbound network is disabled by default (`SANDBOX_NETWORK=0`). Render Sandboxes are early access and must be enabled for the workspace. Provisioning failures fail closed without falling back to the host. Keep `SANDBOX_ALLOW_HOST_EXECUTION=0` in public deployments.
 - **Safety boundary:** the Docker runner drops Linux capabilities, uses no-new-privileges, caps memory/CPU/processes, and defaults to no network. Workspace file edits remain available when shell execution is disabled.
 
+## Project intelligence and quality tools
+
+Forge includes a session-scoped Project Brain panel in the sidebar:
+
+- **Workspace map:** lists safe project files, size/language counts, and Python class/function symbols. It skips secrets, symlinks, VCS metadata, dependency caches, and common build folders.
+- **Project search:** searches text files with file/line references, capped results, and size limits.
+- **Project memory:** stores explicit project decisions, architecture notes, facts, preferences, TODOs, and lessons from failures in SQLite, scoped to the chat session. It rejects likely credential-shaped content. Do not store secrets or personal sensitive information.
+- **Security review:** performs a lightweight heuristic scan for suspicious hard-coded credentials, disabled TLS verification, unsafe pickle deserialization, shell-enabled subprocesses, and debug servers. It is a review aid, not a security certification.
+- **Operations overview:** reports model/fallback configuration, integration presence, task storage health, sandbox readiness, and key safety settings without returning secret values.
+- **Evaluation catalog:** documents behavioral regression targets. This endpoint is a catalog, not a claim that the model has passed live evaluations.
+
+New endpoints:
+
+- `GET /api/brain/map?sid=<session>`
+- `GET /api/brain/search?sid=<session>&q=<query>`
+- `GET /api/brain/memory?sid=<session>`
+- `POST /api/brain/memory` with `session`, `kind`, `title`, `body`
+- `DELETE /api/brain/memory/<id>?sid=<session>`
+- `GET /api/security/report?sid=<session>`
+- `GET /api/ops/overview`
+- `GET /api/evals/catalog`
+
+The intelligence database defaults to the same SQLite file as task checkpoints. For durable memory across deploys, configure `TASK_DB_PATH` on persistent storage. Project memory is not automatically inferred from model output; save only confirmed, useful decisions.
+
 ## Environment variables
 
 | Variable | Purpose |
@@ -25,6 +49,10 @@ Forge is a streaming, tool-using AI workspace with configurable OpenAI-compatibl
 | `FORGE_FALLBACK_BASE_URL` | Optional fallback API base URL |
 | `FORGE_FALLBACK_MODEL` | Optional fallback model ID |
 | `FORGE_FALLBACK_KIND` | `openai` or `anthropic` |
+| `FORGE_CODING_API_KEY` / `FORGE_CODING_BASE_URL` / `FORGE_CODING_MODEL` | Optional dedicated coding model; configure all three to enable routing |
+| `FORGE_REVIEW_API_KEY` / `FORGE_REVIEW_BASE_URL` / `FORGE_REVIEW_MODEL` | Optional dedicated specialist-review model |
+| `FORGE_SUMMARY_API_KEY` / `FORGE_SUMMARY_BASE_URL` / `FORGE_SUMMARY_MODEL` | Optional lower-cost context-summary model |
+| `FORGE_CODING_KIND`, `FORGE_REVIEW_KIND`, `FORGE_SUMMARY_KIND` | Optional provider kind per route: `openai` (default) or `anthropic` |
 | `TASK_DB_PATH` | SQLite checkpoint database path; default `data/tasks.sqlite3` |
 | `FORGE_SESSION_DIR` | Session history directory; default `data/sessions` |
 | `ALLOW_SHELL` | Must be `1` to enable any command runner |
@@ -43,6 +71,24 @@ Do not put API keys in source control. Configure secrets through the Render dash
 ## Persistence on Render
 
 SQLite and session files survive process restarts when the filesystem remains intact. **They do not survive every redeploy on an ephemeral filesystem.** For cross-deploy task and conversation persistence, attach a persistent disk to the service and set both `TASK_DB_PATH` and `FORGE_SESSION_DIR` to paths under its mount directory. The current free Render service plan may not support persistent disks; if not, use a supported persistent storage service before relying on checkpoints across deploys.
+
+## Specialist team reviews
+
+The Project Brain panel can run an on-demand, sequential review from three specialist roles: architect, security reviewer, and test strategist. It builds a bounded workspace map and sends it with the review goal to the configured model. Configure `FORGE_REVIEW_API_KEY`, `FORGE_REVIEW_BASE_URL`, and `FORGE_REVIEW_MODEL` together to use a dedicated reviewer model; otherwise the primary model is reused. This advisory review does not edit files or claim tests were executed.
+
+- `GET /api/agents/specialists`
+- `POST /api/agents/team-review` with `{ "session": "...", "goal": "..." }`
+
+The model layer also supports optional task-specific `FORGE_CODING_*`, `FORGE_REVIEW_*`, and `FORGE_SUMMARY_*` profiles. A profile activates only when its API key, base URL, and model are all set; otherwise Forge uses the normal primary provider and its configured fallback behavior.
+
+## Visual workflow builder
+
+The Project Brain panel can save and run reusable, session-scoped workflows. Supported steps are `map_workspace`, `search_workspace`, `security_scan`, and `list_memory`. Workflows are limited to 20 steps and cannot run arbitrary shell commands or external side effects. Step results are persisted during execution so failed runs retain their completed-step output.
+
+- `GET /api/workflows?sid=<session>`
+- `POST /api/workflows` with a session, name, and ordered steps
+- `POST /api/workflows/<id>/run?sid=<session>`
+- `DELETE /api/workflows/<id>?sid=<session>`
 
 ## Run checks
 

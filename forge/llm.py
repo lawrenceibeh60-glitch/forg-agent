@@ -77,13 +77,29 @@ def fallback_provider():
             "model": model, "base_url": base_url.rstrip("/"), "kind": kind}
 
 
-async def stream(messages, tools):
+def routed_provider(purpose="general"):
+    """Use an explicit per-purpose provider only when all credentials/config are supplied."""
+    purpose = re.sub(r"[^a-z0-9_]", "", str(purpose or "general").lower())[:32]
+    prefix = "FORGE_" + purpose.upper() + "_"
+    key = os.getenv(prefix + "API_KEY", "").strip()
+    model = os.getenv(prefix + "MODEL", "").strip()
+    base_url = os.getenv(prefix + "BASE_URL", "").strip()
+    if not (key and model and base_url):
+        return active()
+    kind = os.getenv(prefix + "KIND", "openai").strip().lower()
+    if kind not in {"openai", "anthropic"}:
+        raise RuntimeError(prefix + "KIND must be openai or anthropic")
+    return {"id": "env-" + purpose, "name": "Forge " + purpose + " route",
+            "key": key, "model": model, "base_url": base_url.rstrip("/"), "kind": kind}
+
+
+async def stream(messages, tools, purpose="general"):
     """Stream from the primary model, retry transient failures, then optionally fail over.
 
     Fallback is only attempted before any response content has been emitted. This
     avoids mixing two model responses or duplicating partial answers/tool calls.
     """
-    primary = active()
+    primary = routed_provider(purpose)
     providers = [primary]
     fallback = fallback_provider()
     if fallback and fallback["base_url"] != primary.get("base_url"):

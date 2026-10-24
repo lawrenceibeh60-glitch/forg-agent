@@ -21,7 +21,7 @@ class ConversationCompactionTests(unittest.IsolatedAsyncioTestCase):
         messages.append({"role": "assistant", "content": "I asked you to choose a theme."})
         messages.append({"role": "user", "content": "The dark blue and silver one."})
         messages.append({"role": "assistant", "content": "Got it, dark blue and silver."})
-        async def fake_stream(_messages, _tools):
+        async def fake_stream(_messages, _tools, purpose="general"):
             yield "message", {"role": "assistant", "content": "Older history summary: prior requests and decisions."}
 
         with patch.object(app.llm, "stream", fake_stream):

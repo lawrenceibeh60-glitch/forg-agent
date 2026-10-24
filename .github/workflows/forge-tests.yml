@@ -28,6 +28,19 @@ jobs:
         run: python -m compileall -q .
       - name: Import application and dependencies
         run: python -c "import pydantic, mcp, fastapi, app; print('imports OK; pydantic', pydantic.__version__)"
+      - name: Check inline frontend JavaScript syntax
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          html = Path("static/index.html").read_text(encoding="utf-8")
+          scripts = re.findall(r"<script(?:\\s[^>]*)?>(.*?)</script>", html, re.S | re.I)
+          inline = [script for script in scripts if script.strip()]
+          if not inline:
+              raise SystemExit("No inline JavaScript found")
+          Path("/tmp/forge-inline.js").write_text(inline[-1], encoding="utf-8")
+          PY
+          node --check /tmp/forge-inline.js
       - name: Run tests
         env:
           ALLOW_SHELL: "0"
