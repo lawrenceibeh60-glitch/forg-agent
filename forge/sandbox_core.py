@@ -36,14 +36,14 @@ def status() -> dict[str, Any]:
     try:
         provider = selected_provider()
     except ValueError as exc:
-        return {"ready": False, "provider": None, "reason": str(exc), "shell_allowed": allowed}
+        return {"ready": False, "configured": False, "provider": None, "reason": str(exc), "shell_allowed": allowed}
 
     if not allowed:
         reason = "Set ALLOW_SHELL=1 to allow commands inside the isolated sandbox."
-        return {"ready": False, "provider": provider, "reason": reason, "shell_allowed": False}
+        return {"ready": False, "configured": bool(provider), "provider": provider, "reason": reason, "shell_allowed": False}
     if provider is None:
         return {
-            "ready": False, "provider": None,
+            "ready": False, "configured": False, "provider": None,
             "reason": "No isolated runner is selected. Configure exactly one sandbox provider; host execution is never used.",
             "shell_allowed": True,
         }
@@ -51,23 +51,25 @@ def status() -> dict[str, Any]:
     if provider == "docker":
         ready = shutil.which("docker") is not None
         reason = "Docker executable found." if ready else "Docker sandbox requested but Docker is unavailable; no host fallback is allowed."
-    elif provider == "vercel":
-        try:
+        return {"ready": ready, "configured": True, "provider": provider, "reason": reason, "shell_allowed": True}
+
+    try:
+        if provider == "vercel":
             from vercel_sandbox import status as provider_status
-            detail = provider_status()
-            ready = bool(detail.get("ready"))
-            reason = str(detail.get("reason") or ("Vercel Sandbox is ready." if ready else "Vercel Sandbox is not ready."))
-        except Exception as exc:
-            ready, reason = False, f"Vercel Sandbox adapter could not load: {type(exc).__name__}: {exc}"
-    else:
-        try:
+        else:
             from render_sandbox import status as provider_status
-            detail = provider_status()
-            ready = bool(detail.get("ready"))
-            reason = str(detail.get("reason") or ("Render Sandbox is ready." if ready else "Render Sandbox is not ready."))
-        except Exception as exc:
-            ready, reason = False, f"Render Sandbox adapter could not load: {type(exc).__name__}: {exc}"
-    return {"ready": ready, "provider": provider, "reason": reason, "shell_allowed": True}
+        detail = provider_status()
+        configured = bool(detail.get("configured", detail.get("ready", False)))
+        # Provider status currently checks SDK/configuration, not live API access.
+        # Do not call that fully ready until a real remote smoke test succeeds.
+        ready = bool(detail.get("live_verified", False))
+        reason = str(detail.get("reason") or "Provider status is unavailable.")
+        if configured and not ready:
+            reason += " Live API access is not yet verified; the first smoke test must prove provisioning and command execution."
+    except Exception as exc:
+        configured, ready = False, False
+        reason = f"{provider.title()} Sandbox adapter could not load: {type(exc).__name__}: {exc}"
+    return {"ready": ready, "configured": configured, "provider": provider, "reason": reason, "shell_allowed": True}
 
 
 def execute(command: str, workspace_root: str | Path, cwd: str | Path, timeout: int = 120) -> str:

@@ -69,3 +69,32 @@ def test_status_reports_missing_provider_without_secret_values(monkeypatch):
     assert not result["ready"]
     assert result["provider"] is None
     assert "do-not-report-this" not in str(result)
+
+
+def test_sdk_configured_is_not_misreported_as_live_ready(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    clear_provider_flags(monkeypatch)
+    monkeypatch.setenv("SANDBOX_VERCEL", "1")
+    monkeypatch.setenv("ALLOW_SHELL", "1")
+    monkeypatch.setitem(sys.modules, "vercel_sandbox", SimpleNamespace(status=lambda: {
+        "configured": True,
+        "ready": True,
+        "reason": "SDK loaded; live access checked on first command.",
+    }))
+    result = sandbox_core.status()
+    assert result["configured"] is True
+    assert result["ready"] is False
+    assert "Live API access is not yet verified" in result["reason"]
+
+
+def test_docker_status_requires_executable(monkeypatch):
+    clear_provider_flags(monkeypatch)
+    monkeypatch.setenv("SANDBOX_DOCKER", "1")
+    monkeypatch.setenv("ALLOW_SHELL", "1")
+    monkeypatch.setattr(sandbox_core.shutil, "which", lambda name: None)
+    result = sandbox_core.status()
+    assert result["configured"] is True
+    assert result["ready"] is False
+    assert "Docker is unavailable" in result["reason"]

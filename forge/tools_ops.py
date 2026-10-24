@@ -138,10 +138,20 @@ def sandbox_new_project(name, template):
     for f, c in TPL.get(template, {}).items(): (d / f).write_text(c.replace("{n}", name))
     return f"created {name}/ with: {', '.join(TPL.get(template, {})) or 'nothing (empty)'}"
 
-@tool("sandbox_info", "Show the sandbox location, size, file count and running background processes.", {})
+@tool("sandbox_info", "Show sandbox provider readiness, workspace size, file count and running background processes.", {})
 def sandbox_info():
-    r = ROOT.get(); fs = [p for p in r.rglob("*") if p.is_file() and ".git" not in p.parts and ".forge" not in p.parts]
-    return f"sandbox: {r.name}\nfiles: {len(fs)}, {sum(p.stat().st_size for p in fs) // 1024} KB\nprocesses:\n{bg_list()}"
+    import sandbox_core
+    r = ROOT.get()
+    fs = [p for p in r.rglob("*") if p.is_file() and ".git" not in p.parts and ".forge" not in p.parts]
+    health = sandbox_core.status()
+    state = "READY" if health.get("ready") else "NOT VERIFIED / NEEDS CONFIGURATION"
+    provider = health.get("provider") or "none selected"
+    return (
+        f"sandbox: {r.name}\nexecution: {state}\nprovider: {provider}\n"
+        f"configured: {bool(health.get('configured'))}\nshell allowed: {bool(health.get('shell_allowed'))}\n"
+        f"diagnostic: {health.get('reason', 'No diagnostic available.')}\n"
+        f"files: {len(fs)}, {sum(p.stat().st_size for p in fs) // 1024} KB\nprocesses:\n{bg_list()}"
+    )
 
 def _bg_name(name):
     value = re.sub(r"[^A-Za-z0-9_-]", "-", str(name or "process"))[:60].strip("-")
