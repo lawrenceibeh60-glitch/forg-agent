@@ -759,6 +759,7 @@ def ops_overview():
     except Exception as exc:
         task_health = {"ok": False, "error": type(exc).__name__}
     try:
+        import render_sandbox
         sandbox_health = render_sandbox.status()
     except Exception:
         sandbox_health = {"configured": bool(os.getenv("SANDBOX_RENDER") == "1"), "status": "unknown"}
