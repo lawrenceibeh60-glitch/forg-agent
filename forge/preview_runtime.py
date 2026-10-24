@@ -19,7 +19,7 @@ from typing import Any
 import vercel_sandbox
 
 STATE_PATH = Path(os.getenv("FORGE_PREVIEW_STATE", "/tmp/forge-data/previews.json"))
-MAX_PREVIEW_SECONDS = min(3600, max(300, int(os.getenv("VERCEL_PREVIEW_TIMEOUT", "3600"))))
+MAX_PREVIEW_SECONDS = min(2700, max(300, int(os.getenv("VERCEL_PREVIEW_TIMEOUT", "2700")))))
 SKIP_DIRS = {".git", ".forge", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache",
              ".ssh", ".aws", ".azure", ".kube", ".gnupg", ".config", "dist", "build"}
 BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico", ".pdf", ".zip", ".gz",
