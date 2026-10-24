@@ -32,7 +32,8 @@ def status():
     else: reason = "Configured; workspace access is verified only when a sandbox operation succeeds."
     return {"enabled": enabled, "configured": configured(), "sdk_installed": sdk,
             "ready": ready, "reason": reason,
-            "network": "enabled" if os.getenv("SANDBOX_NETWORK", "0") == "1" else "disabled",\n            "snapshot_configured": bool(os.getenv("SANDBOX_SNAPSHOT_NAME", "").strip())}
+            "network": "enabled" if os.getenv("SANDBOX_NETWORK", "0") == "1" else "disabled",
+            "snapshot_configured": bool(os.getenv("SANDBOX_SNAPSHOT_NAME", "").strip())}
 
 
 def _stage(source: Path, target: Path):
