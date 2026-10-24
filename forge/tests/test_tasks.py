@@ -63,6 +63,22 @@ class TaskCheckpointTests(unittest.TestCase):
             self.assertEqual(loaded["checkpoint"]["phase"], "interrupted")
             self.assertIn("restarted", loaded["last_error"])
 
+    def test_conversation_round_trips_as_durable_session_data(self):
+        messages = [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "Build the feature"},
+            {"role": "assistant", "content": "I will inspect the files."},
+        ]
+        tasks.save_session("session-memory", messages)
+        self.assertEqual(tasks.load_session("session-memory"), messages)
+        self.assertIsNone(tasks.load_session("missing-session"))
+
+    def test_recovery_can_skip_recently_updated_tasks(self):
+        task = tasks.create("session-live", "Do not steal active work")
+        tasks.update(task["id"], status="running", current_step="working")
+        self.assertEqual(tasks.recover_interrupted(stale_after=3600), 0)
+        self.assertEqual(tasks.get(task["id"])["status"], "running")
+
     def test_health_reports_sqlite_backend(self):
         health = tasks.health()
         self.assertTrue(health["ok"])
