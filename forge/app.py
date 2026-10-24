@@ -231,6 +231,29 @@ def save_custom_prompt(body: dict):
 @app.get("/api/providers")
 def prov(): return llm.public()
 
+@app.post("/api/providers/test")
+async def prov_test():
+    """Verify the currently selected provider with a minimal non-tool request."""
+    try:
+        answer = ""
+        async for kind, value in llm.stream(
+            [{"role": "system", "content": "You are a connection test. Reply with exactly: Forge model connection OK."},
+             {"role": "user", "content": "Run the connection test."}], []):
+            if kind == "text": answer += value
+        if not answer.strip():
+            return JSONResponse({"ok": False, "error": "The provider connected but returned no text."}, status_code=502)
+        return {"ok": True, "model": llm.active().get("model", "unknown"), "reply": answer[:300]}
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)[:500]}, status_code=502)
+
+@app.get("/api/sandbox/status")
+def sandbox_status():
+    docker_ready = bool(shutil.which("docker")) and os.getenv("SANDBOX_DOCKER", "0") == "1"
+    host_exec = os.getenv("SANDBOX_ALLOW_HOST_EXECUTION", "0") == "1"
+    return {"files": True, "download_zip": True,
+            "execution": "docker-isolated" if docker_ready else ("development-host" if host_exec else "disabled"),
+            "safe_reason": "" if docker_ready or host_exec else "This host has no enabled isolated command runner. File editing and downloads work; arbitrary shell execution remains disabled."}
+
 @app.post("/api/providers")
 def prov_add(b: dict): return {"id": llm.add(b.get("preset", "custom"), b.get("key", ""), b["model"], b.get("base_url", ""), b.get("name", ""))}
 
