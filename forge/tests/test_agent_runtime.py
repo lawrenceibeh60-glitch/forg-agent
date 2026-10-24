@@ -111,3 +111,25 @@ def test_render_sandbox_not_found_error_does_not_claim_group_missing_when_visibl
     message = render_sandbox.creation_failure_diagnosis(error, VisibleGroupAPI())
     assert "sandbox group is visible" in message.lower()
     assert "api key" in message.lower()
+
+
+def test_engineering_task_always_exposes_connected_sandbox_tools():
+    names = {
+        "list_files", "run_command", "sandbox_runtime_info", "sandbox_info",
+        "ipython_eval", "linux_package_install", "bg_start", "bg_logs",
+        "bg_stop", "bg_list", "preview_start", "preview_stop",
+    }
+    selected = agent_runtime.select_schemas([schema(name) for name in names], "Build and test this app in the Linux sandbox")
+    assert names <= {x["function"]["name"] for x in selected}
+
+
+def test_natural_language_sandbox_requests_route_to_execution_tools():
+    available = [
+        schema("sandbox_runtime_info"), schema("run_command"), schema("linux_package_install"),
+        schema("ipython_eval"), schema("bg_start"), schema("preview_start"),
+        schema("delete_file"),
+    ]
+    selected = agent_runtime.select_schemas(available, "Please use the Linux shell, install the missing packages, and show me a live preview")
+    names = {x["function"]["name"] for x in selected}
+    assert {"sandbox_runtime_info", "run_command", "linux_package_install", "preview_start"} <= names
+    assert "delete_file" not in names
