@@ -180,6 +180,40 @@ def select_schemas(all_schemas: list[dict], task_text: str, max_tools: int = 42)
     return [schema for schema in all_schemas if schema.get("function", {}).get("name") in selected]
 
 
+def verification_succeeded(tool_name: str, output: str) -> bool:
+    """Return true only when a meaningful check produced positive evidence."""
+    name, value = str(tool_name or ""), str(output or "").strip()
+    if not value:
+        return False
+    if name in {"run_tests", "lint", "run_command", "python_eval", "node_eval"}:
+        # Render's runner uses "[exit 0; ...]" while Docker/local runners use
+        # "[exit 0]". Do not infer success from reassuring prose alone.
+        match = re.search(r"\[exit\s+(\d+)(?:[;\]])", value, re.I)
+        return bool(match and int(match.group(1)) == 0)
+    if name == "check_url":
+        match = re.match(r"\s*(\d{3})\b", value)
+        return bool(match and 200 <= int(match.group(1)) < 300)
+    if name == "http_request":
+        match = re.match(r"\s*(\d{3})\b", value)
+        return bool(match and 200 <= int(match.group(1)) < 300)
+    return False
+
+
+def verification_unavailable(output: str) -> bool:
+    """Detect a policy/configuration blocker so the agent doesn't retry blindly."""
+    value = str(output or "").lower()
+    markers = (
+        "command execution is disabled by policy",
+        "shell disabled by policy",
+        "no isolated command runner is configured",
+        "docker sandbox requested but docker is unavailable",
+        "sandbox is not configured",
+        "set app_password before using the sandbox test",
+        "refusing to execute on the host",
+    )
+    return any(marker in value for marker in markers)
+
+
 def workspace_snapshot(root: str | Path, max_files: int = 90, max_manifest_chars: int = 1800) -> str:
     """Create a bounded, secret-safe workspace brief for engineering requests."""
     base = Path(root).resolve()
