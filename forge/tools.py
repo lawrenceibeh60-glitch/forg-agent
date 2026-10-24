@@ -32,94 +32,17 @@ def safe(p):
     return full
 
 def sh(cmd, cwd=None, timeout=120):
-    """Execute only in an isolated remote Render sandbox or explicitly configured Docker."""
+    """Execute a command through Forge's single fail-closed sandbox router."""
+    import sandbox_core
     root = ROOT.get().resolve()
-    cwd = (cwd or ROOT.get()).resolve()
-    if root != cwd and root not in cwd.parents:
-        raise ValueError("command working directory escapes the active workspace")
-    if os.getenv("ALLOW_SHELL", "0") != "1":
-        return "command execution is disabled by policy (ALLOW_SHELL=0)"
-    if os.getenv("SANDBOX_VERCEL", "0") == "1":
-        from vercel_sandbox import run as vercel_sandbox_run
-        output = vercel_sandbox_run(cmd, cwd, timeout)
-    elif os.getenv("SANDBOX_RENDER", "0") == "1":
-        from render_sandbox import run as render_sandbox_run
-        output = render_sandbox_run(cmd, cwd, timeout)
-    elif os.getenv("SANDBOX_DOCKER", "0") == "1":
-        rel = os.path.relpath(cwd, root)
-        image = os.getenv("SANDBOX_IMAGE", "nikolaik/python-nodejs:python3.12-nodejs20")
-        network = "bridge" if os.getenv("SANDBOX_NETWORK", "0") == "1" else "none"
-        uid = os.getuid() if hasattr(os, "getuid") else 1000
-        gid = os.getgid() if hasattr(os, "getgid") else 1000
-        argv = [
-            "docker", "run", "--rm", "--network", network,
-            "--memory=1g", "--cpus=1", "--pids-limit=128",
-            "--cap-drop=ALL", "--security-opt=no-new-privileges",
-            "--user", f"{uid}:{gid}", "--tmpfs", "/tmp:rw,noexec,nosuid,size=256m",
-            "--mount", f"type=bind,src={root},dst=/workspace",
-            "--workdir", "/workspace" if rel == "." else "/workspace/" + rel,
-            image, "sh", "-lc", cmd,
-        ]
-        try:
-            r = subprocess.run(argv, cwd=root, capture_output=True, text=True, timeout=timeout)
-        except FileNotFoundError:
-            return "Docker sandbox requested but Docker is unavailable; refusing to execute on the host."
-        output = (r.stdout + r.stderr).strip() or "(no output)"
-        output += f"\n[exit {r.returncode}]"
-    elif os.getenv("SANDBOX_ALLOW_HOST_EXECUTION", "0") == "1":
-        r = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True,
-                           timeout=timeout, env={"PATH": os.getenv("PATH", "/usr/bin:/bin"),
-                                                "HOME": str(root), "LANG": "C.UTF-8",
-                                                "WORKSPACE": str(root)})
-        output = (r.stdout + r.stderr).strip() or "(no output)"
-        output += f"\n[exit {r.returncode}]"
-    else:
-        return ("no isolated command runner is configured. Enable SANDBOX_RENDER=1 with "
-                "RENDER_API_KEY and RENDER_WORKSPACE_ID, or use SANDBOX_DOCKER=1 on a Docker host. "
-                "Host-shell fallback is disabled.")
+    workdir = (cwd or ROOT.get()).resolve()
+    output = sandbox_core.execute(cmd, root, workdir, timeout)
     token = connections.get_access_token("github") or os.getenv("GITHUB_TOKEN", "")
     if token:
         output = output.replace(token, "***")
     return output[-6000:]
 
-# ---------- filesystem & code ----------
-@tool("list_files", "List files in the workspace (recursive, skips .git/node_modules).", {"path?": ("string", "subdirectory")})
-def list_files(path="."):
-    out = []
-    for p in sorted(safe(path).rglob("*")):
-        if any(x in p.parts for x in (".git", "node_modules", "__pycache__", ".venv")): continue
-        if p.is_file(): out.append(str(p.relative_to(WS)))
-    return "\n".join(out[:500]) or "(empty)"
 
-@tool("read_file", "Read a text file, optionally a line range.", {"path": ("string", "file path"), "start?": ("integer", "1-based start line"), "end?": ("integer", "end line")})
-def read_file(path, start=1, end=None):
-    lines = safe(path).read_text(errors="replace").splitlines()
-    s = max(start - 1, 0)
-    return "\n".join(f"{i+s+1}: {l}" for i, l in enumerate(lines[s:end]))[:20000]
-
-@tool("write_file", "Create or overwrite a file.", {"path": ("string", "file path"), "content": ("string", "full content")})
-def write_file(path, content):
-    p = safe(path); p.parent.mkdir(parents=True, exist_ok=True); p.write_text(content)
-    return f"wrote {len(content)} bytes to {path}"
-
-@tool("edit_file", "Replace an exact unique string in a file. Prefer over write_file for changes.", {"path": ("string", "file"), "old": ("string", "exact text to replace"), "new": ("string", "replacement")})
-def edit_file(path, old, new):
-    p = safe(path); t = p.read_text()
-    if t.count(old) != 1: return f"error: old text found {t.count(old)} times; must be exactly 1"
-    p.write_text(t.replace(old, new)); return "edited"
-
-@tool("search_code", "Regex search across workspace files.", {"pattern": ("string", "regex"), "glob?": ("string", "e.g. *.py")})
-def search_code(pattern, glob="*"):
-    rx, hits = re.compile(pattern), []
-    for p in WS.rglob(glob):
-        if not p.is_file() or ".git" in p.parts or "node_modules" in p.parts: continue
-        try:
-            for i, l in enumerate(p.read_text().splitlines(), 1):
-                if rx.search(l): hits.append(f"{p.relative_to(WS)}:{i}: {l.strip()[:160]}")
-        except Exception: pass
-    return "\n".join(hits[:100]) or "no matches"
-
-@tool("run_command", "Run a shell command in the workspace (tests, installs, builds, linters).", {"command": ("string", "shell command"), "cwd?": ("string", "subdirectory")})
 def run_command(command, cwd="."):
     if os.getenv("ALLOW_SHELL", "0") != "1": return "shell disabled by policy (ALLOW_SHELL=0)"
     try: return sh(command, safe(cwd))

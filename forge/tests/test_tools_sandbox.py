@@ -37,7 +37,7 @@ class WorkspaceSandboxTests(unittest.TestCase):
 
     def test_docker_missing_fails_closed(self):
         with patch.dict(os.environ, {"ALLOW_SHELL": "1", "SANDBOX_DOCKER": "1", "SANDBOX_ALLOW_HOST_EXECUTION": "0"}):
-            with patch("tools.subprocess.run", side_effect=FileNotFoundError):
+            with patch("sandbox_core.subprocess.run", side_effect=FileNotFoundError):
                 result = tools.sh("echo should-not-run")
         self.assertIn("Docker is unavailable", result)
 
