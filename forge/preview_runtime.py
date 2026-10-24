@@ -184,13 +184,13 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
                      " >/tmp/forge-preview-app.log 2>&1 </dev/null & echo $! >/tmp/forge-preview-app.pid"],
             capture_output=True, check=False,
         )
-        if getattr(result, "returncode", getattr(result, "exit_code", 1)) != 0:
+        if _returncode(result) != 0:
             raise RuntimeError("Could not launch preview server: " + str(getattr(result, "stderr", ""))[-1500:])
         ready = False
         for _ in range(30):
             probe = await _run_process(box, "bash", ["-lc", f"curl -fsS --max-time 2 http://127.0.0.1:{port}/ >/dev/null"],
                                           capture_output=True, check=False)
-            if getattr(probe, "returncode", getattr(probe, "exit_code", 1)) == 0:
+            if _returncode(probe) == 0:
                 ready = True
                 break
             await asyncio.sleep(1)
