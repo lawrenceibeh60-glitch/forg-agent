@@ -7,7 +7,7 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
-STORE = Path("data/connections.enc")
+STORE = Path(os.getenv("FORGE_CONNECTIONS_PATH", str(Path(os.getenv("FORGE_DATA_DIR", "data")) / "connections.enc")) )
 
 
 def _fernet():
