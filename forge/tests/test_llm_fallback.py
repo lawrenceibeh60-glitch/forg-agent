@@ -75,3 +75,27 @@ class ModelFallbackTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ModelRoutingTests(unittest.TestCase):
+    def test_profile_requires_all_three_values(self):
+        with patch.dict("os.environ", {"FORGE_REVIEW_API_KEY":"k", "FORGE_REVIEW_MODEL":"m"}, clear=True), \
+             patch.object(llm, "active", return_value={"id":"primary"}):
+            self.assertEqual(llm.routed_provider("review")["id"], "primary")
+
+    def test_profile_selects_configured_route_without_exposing_secrets(self):
+        env = {"FORGE_REVIEW_API_KEY":"secret-key", "FORGE_REVIEW_MODEL":"review-model",
+               "FORGE_REVIEW_BASE_URL":"https://review.example/v1", "FORGE_REVIEW_KIND":"openai"}
+        with patch.dict("os.environ", env, clear=True):
+            provider = llm.routed_provider("review")
+        self.assertEqual(provider["id"], "env-review")
+        self.assertEqual(provider["model"], "review-model")
+        self.assertEqual(provider["base_url"], "https://review.example/v1")
+        self.assertNotIn("secret-key", repr({k:v for k,v in provider.items() if k not in {"key"}}))
+
+    def test_invalid_profile_kind_is_rejected(self):
+        env = {"FORGE_REVIEW_API_KEY":"secret-key", "FORGE_REVIEW_MODEL":"review-model",
+               "FORGE_REVIEW_BASE_URL":"https://review.example/v1", "FORGE_REVIEW_KIND":"unknown"}
+        with patch.dict("os.environ", env, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "KIND"):
+                llm.routed_provider("review")
