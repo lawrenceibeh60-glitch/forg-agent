@@ -39,3 +39,18 @@ services:
         sync: false
       - key: WORKSPACE
         value: workspace
+      # For durable task/session history across deploys, mount a Render disk and
+      # point these paths at its mount directory. Free services have ephemeral disk.
+      - key: TASK_DB_PATH
+        value: data/tasks.sqlite3
+      - key: FORGE_SESSION_DIR
+        value: data/sessions
+      # Optional fallback model. Leave unset unless a second provider is configured.
+      - key: FORGE_FALLBACK_API_KEY
+        sync: false
+      - key: FORGE_FALLBACK_BASE_URL
+        sync: false
+      - key: FORGE_FALLBACK_MODEL
+        sync: false
+      - key: FORGE_FALLBACK_KIND
+        value: openai

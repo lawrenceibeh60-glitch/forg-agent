@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import re, shutil, llm, tools, tools_extra, tools_ops, connections
+import re, shutil, llm, tools, tools_extra, tools_ops, connections, tasks
 from mcp_client import mcp
 
 from prompts import SYSTEM
@@ -41,11 +41,17 @@ def explicitly_authorized(message, name):
     return False
 CATS = [(r"^mcp__","plug"),(r"^(repo_|publish)","branch"),(r"^(bg_|sandbox)","term"),(r"^(think|update_plan|remember)","bulb"),(r"^render","cloud"),(r"^git","branch"),(r"search_code|^find_|^glob|outline","search"),(r"^(web|http|check_url|extract_links|pypi|npm_info|stack|dns|port|wiki)","globe"),(r"sql|csv|json|^env|stats|dependency","db"),(r"^(run|python|node|pip|npm_install|docker|process|lint|detect|system|apply)","term"),(r"file|dir|tree|move|delete|archive|extract|read|write|append|edit|bulk","file")]
 def cat(n): return next((c for p, c in CATS if re.search(p, n)), "wrench")
-SD = Path("data/sessions"); SD.mkdir(parents=True, exist_ok=True)
+SD = Path(os.getenv("FORGE_SESSION_DIR", "data/sessions")); SD.mkdir(parents=True, exist_ok=True)
 PENDING = {}
 
 @asynccontextmanager
 async def life(_):
+    try:
+        recovered = tasks.recover_interrupted()
+        if recovered:
+            print(f"Recovered {recovered} interrupted task checkpoint(s).")
+    except Exception as exc:
+        print("Task checkpoint recovery unavailable:", type(exc).__name__)
     for n, c in mcp.saved().items():
         try: await mcp.connect(n, c, persist=False)
         except Exception as e: print("MCP", n, "failed:", e)
@@ -125,10 +131,24 @@ async def compact(msgs):
             {"role": "assistant", "content": "Continuity state loaded. Recent conversation remains available below."}
         ]
 
+def session_path(sid):
+    if not isinstance(sid, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid):
+        raise ValueError("invalid session id")
+    return SD / (sid + ".json")
+
+
 def load(sid):
-    f = SD / f"{sid}.json"
+    f = session_path(sid)
     return json.loads(f.read_text()) if f.exists() else [{"role": "system", "content": system()}]
-def save(sid, msgs): (SD / f"{sid}.json").write_text(json.dumps(msgs))
+
+
+def save(sid, msgs):
+    f = session_path(sid)
+    temp = f.with_suffix(".tmp")
+    temp.write_text(json.dumps(msgs, ensure_ascii=False))
+    temp.replace(f)
+
+
 def sse(ev, data): return f"data: {json.dumps({'type': ev, **data})}\n\n"
 
 class Req(BaseModel):
@@ -144,6 +164,8 @@ class Appr(BaseModel):
 @app.post("/api/chat")
 async def chat(req: Req):
     sid = req.session or uuid.uuid4().hex
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
     msgs = load(sid); msgs[0]["content"] = system()
     user_content = req.message
     if req.images:
@@ -160,14 +182,21 @@ async def chat(req: Req):
             parts.append({"type": "image_url", "image_url": {"url": image_data}})
         user_content = parts
     msgs.append({"role": "user", "content": user_content})
+    task = tasks.create(sid, req.message)
+    task_id = task["id"]
+    tasks.update(task_id, checkpoint={"phase": "starting", "turn": 0, "tool_calls": 0, "images_attached": len(req.images)})
 
     async def run():
-        yield sse("session", {"id": sid})
+        yield sse("session", {"id": sid, "task_id": task_id})
+        yield sse("task", {"id": task_id, "status": "running"})
+        calls = []
+        task_status = "completed"
         try:
             edited = verified = nudged = completion_checked = False
             max_turns = max(40, min(80, int(os.getenv("FORGE_MAX_AGENT_TURNS", "60"))))
             for turn in range(1, max_turns + 1):
-                yield sse("progress", {"text": f"Working through the task · reasoning cycle {turn}", "turn": turn})
+                tasks.update(task_id, current_step=f"Reasoning cycle {turn}", checkpoint={"phase": "reasoning", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs)})
+                yield sse("progress", {"text": f"Working through the task · reasoning cycle {turn}", "turn": turn, "task_id": task_id})
                 tools.use(sid)
                 await compact(msgs)
                 m = None
@@ -187,7 +216,9 @@ async def chat(req: Req):
                         yield sse("progress", {"text": "Reviewing whether the original request is actually complete."})
                         msgs.append({"role": "user", "content": "[Completion review] Compare the original request with everything completed so far. Do not merely repeat your previous answer. If meaningful requested steps remain and you can safely make progress, continue using tools now. Check results and recover from errors. If the task is complete, or a genuine external blocker remains, provide the final answer with concrete evidence and limitations. Do not invent work or loop pointlessly."})
                         continue
+                    tasks.update(task_id, status="completed", current_step="Final answer delivered", checkpoint={"phase": "completed", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs), "verified": bool(verified)})
                     break
+                tasks.update(task_id, current_step=f"Processing {len(calls)} tool call(s)", checkpoint={"phase": "tool_execution", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs)})
                 for c in calls:
                     name, raw = c["function"]["name"], c["function"]["arguments"]
                     try: args = json.loads(raw or "{}")
@@ -197,11 +228,13 @@ async def chat(req: Req):
                     if name in VERIFY: verified = True
                     ok = True
                     if (name.startswith("mcp__") and not req.auto) or ((name in RISKY) and not req.auto and not explicitly_authorized(req.message, name)):
+                        tasks.update(task_id, status="waiting_approval", current_step=f"Waiting for approval: {name}", checkpoint={"phase": "approval", "tool": name, "turn": turn})
                         fut = asyncio.get_running_loop().create_future(); PENDING[c["id"]] = fut
                         yield sse("approval", {"id": c["id"], "name": name})
                         try: ok = await asyncio.wait_for(fut, 300)
                         except asyncio.TimeoutError: ok = False
                         PENDING.pop(c["id"], None)
+                        tasks.update(task_id, status="running", current_step=f"Approval resolved: {name}", checkpoint={"phase": "tool_execution", "tool": name, "approved": bool(ok), "turn": turn})
                     try:
                         if not ok:
                             out = "Action was denied by the user. Do not retry the same action unless the user changes their decision."
@@ -217,8 +250,29 @@ async def chat(req: Req):
                     yield sse("tool_result", {"id": c["id"], "output": str(out)[:4000]})
                     yield sse("progress", {"text": f"Received result from {name}; evaluating the result and next step."})
                     msgs.append({"role": "tool", "tool_call_id": c["id"], "content": str(out)[:12000]})
+                    if name == "update_plan" and isinstance(args.get("steps"), str):
+                        plan_items = []
+                        plan_done = []
+                        for line in args["steps"].splitlines()[:80]:
+                            label = re.sub(r"^\s*(?:[-*+]\s*)?(?:\[[ xX]\]\s*)?\d*[.)]?\s*", "", line).strip()
+                            if label:
+                                plan_items.append(label[:300])
+                                if re.search(r"\[[xX]\]", line):
+                                    plan_done.append(label[:300])
+                        tasks.update(task_id, plan=plan_items, completed=plan_done, current_step=next((item for item in plan_items if item not in plan_done), "Plan recorded"))
+                    checkpoint_fields = {"checkpoint": {"phase": "tool_result", "turn": turn, "last_tool": name, "last_tool_result": str(out)[:1500], "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs)}}
+                    if name != "update_plan":
+                        checkpoint_fields["current_step"] = f"Reviewed result from {name}"
+                    tasks.update(task_id, **checkpoint_fields)
+        except asyncio.CancelledError:
+            task_status = "blocked"
+            tasks.update(task_id, status="blocked", last_error="The streaming request was interrupted; resume from the saved checkpoint.", current_step="Connection interrupted; checkpoint saved", checkpoint={"phase": "client_cancelled", "message_count": len(msgs), "turn": locals().get("turn", 0)})
+            save(sid, msgs)
+            raise
         except Exception as e:
-            yield sse("error", {"error": str(e)})
+            task_status = "failed"
+            tasks.update(task_id, status="failed", last_error=f"{type(e).__name__}: {e}", current_step="Agent execution failed", checkpoint={"phase": "error", "message_count": len(msgs)})
+            yield sse("error", {"error": str(e), "task_id": task_id})
         if "turn" in locals() and turn >= max_turns and calls:
             msgs.append({"role": "user", "content": "[Agent iteration limit reached] You reached the current execution budget. Do not claim full completion unless verified. Summarize completed work, what you verified, and the specific remaining steps or blocker."})
             yield sse("progress", {"text": "Reached the current work budget; preparing an honest checkpoint."})
@@ -232,8 +286,16 @@ async def chat(req: Req):
                     msgs.append({"role": "assistant", "content": final_message})
             except Exception:
                 pass
+            task_status = "blocked"
+            tasks.update(task_id, status="blocked", current_step="Agent iteration budget reached", last_error="The configured turn budget was exhausted; resume the task to continue.", checkpoint={"phase": "budget_exhausted", "turn": turn, "message_count": len(msgs), "tool_calls": sum(1 for m in msgs if m.get("role") == "tool")})
         save(sid, msgs)
-        yield sse("done", {})
+        if task_status == "completed":
+            tasks.update(task_id, status="completed", current_step="Conversation saved", checkpoint={"phase": "saved", "message_count": len(msgs), "turn": locals().get("turn", 0), "tool_calls": sum(1 for m in msgs if m.get("role") == "tool")})
+        elif task_status not in ("failed", "blocked"):
+            tasks.update(task_id, status=task_status, checkpoint={"phase": task_status, "message_count": len(msgs)})
+        latest = tasks.get(task_id)
+        yield sse("task", {"id": task_id, "status": latest.get("status") if latest else task_status})
+        yield sse("done", {"task_id": task_id})
     return StreamingResponse(run(), media_type="text/event-stream")
 
 PW = os.getenv("APP_PASSWORD")
@@ -364,8 +426,9 @@ async def prov_test():
 
 @app.get("/api/sandbox/status")
 def sandbox_status():
-    docker_ready = bool(shutil.which("docker")) and os.getenv("SANDBOX_DOCKER", "0") == "1"
-    host_exec = os.getenv("SANDBOX_ALLOW_HOST_EXECUTION", "0") == "1"
+    shell_enabled = os.getenv("ALLOW_SHELL", "0") == "1"
+    docker_ready = shell_enabled and bool(shutil.which("docker")) and os.getenv("SANDBOX_DOCKER", "0") == "1"
+    host_exec = shell_enabled and os.getenv("SANDBOX_ALLOW_HOST_EXECUTION", "0") == "1"
     return {"files": True, "download_zip": True,
             "execution": "docker-isolated" if docker_ready else ("development-host" if host_exec else "disabled"),
             "safe_reason": "" if docker_ready or host_exec else "This host has no enabled isolated command runner. File editing and downloads work; arbitrary shell execution remains disabled."}
@@ -394,6 +457,52 @@ async def approve(a: Appr):
     if f and not f.done(): f.set_result(a.ok)
     return {"ok": True}
 
+@app.get("/api/tasks")
+def task_list(limit: int = 30):
+    return {"tasks": tasks.list_recent(limit), "storage": tasks.health()}
+
+@app.get("/api/tasks/{task_id}")
+def task_detail(task_id: str):
+    task = tasks.get(task_id)
+    if not task:
+        return JSONResponse({"error": "task not found"}, status_code=404)
+    return task
+
+class ResumeReq(BaseModel):
+    auto: bool = False
+
+
+@app.post("/api/tasks/{task_id}/resume")
+async def task_resume(task_id: str, body: ResumeReq):
+    task = tasks.get(task_id)
+    if not task:
+        return JSONResponse({"error": "task not found"}, status_code=404)
+    if task.get("status") in {"completed", "cancelled"}:
+        return JSONResponse({"error": f"Task is {task['status']} and cannot be resumed."}, status_code=409)
+    checkpoint = task.get("checkpoint") or {}
+    plan = task.get("plan") or []
+    completed = task.get("completed") or []
+    resume_message = (
+        "[Resume interrupted Forge task]\n"
+        f"Original goal: {task.get('goal', '')}\n"
+        f"Last checkpoint: {json.dumps(checkpoint, ensure_ascii=False)[:5000]}\n"
+        f"Plan: {json.dumps(plan, ensure_ascii=False)}\n"
+        f"Completed steps: {json.dumps(completed, ensure_ascii=False)}\n"
+        f"Last known step: {task.get('current_step', '')}\n"
+        f"Last error/blocker: {task.get('last_error', '')}\n\n"
+        "Continue the original goal using the saved conversation and checkpoint. "
+        "Inspect current files/state before repeating work. Preserve verified progress, "
+        "diagnose the last failure, and continue with the next safe useful step. "
+        "Do not claim the old task is complete unless you verify the remaining work."
+    )
+    return await chat(Req(session=task["session_id"], message=resume_message, auto=body.auto))
+
+
+@app.get("/api/sessions/{sid}/tasks")
+def session_tasks(sid: str, limit: int = 10):
+    return {"tasks": tasks.list_for_session(sid, limit)}
+
+
 @app.get("/api/sessions")
 def sessions():
     out = []
@@ -404,6 +513,8 @@ def sessions():
 
 @app.get("/api/sessions/{sid}")
 def session(sid: str):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
     return [m for m in load(sid) if m["role"] in ("user", "assistant") and m.get("content") and not str(m["content"]).startswith(("[Automatic check]", "[Summary of"))]
 
 @app.get("/api/mcp")
