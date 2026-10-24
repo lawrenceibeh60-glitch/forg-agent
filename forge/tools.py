@@ -32,12 +32,41 @@ def safe(p):
     return full
 
 def sh(cmd, cwd=None, timeout=120):
-    import shlex
-    root, cwd = ROOT.get(), cwd or ROOT.get()
-    if os.getenv("SANDBOX_DOCKER") == "1" and not cmd.startswith("git "):  # optional hard isolation
+    """Execute in an explicitly enabled, resource-limited Docker sandbox by default."""
+    root = ROOT.get().resolve()
+    cwd = (cwd or ROOT.get()).resolve()
+    if root != cwd and root not in cwd.parents:
+        raise ValueError("command working directory escapes the active workspace")
+    if os.getenv("ALLOW_SHELL", "0") != "1":
+        return "command execution is disabled by policy (ALLOW_SHELL=0)"
+    if os.getenv("SANDBOX_DOCKER", "0") == "1":
         rel = os.path.relpath(cwd, root)
-        cmd = f"docker run --rm -v {shlex.quote(str(root))}:/work -w {shlex.quote('/work/' + rel)} {os.getenv('SANDBOX_IMAGE', 'nikolaik/python-nodejs:python3.12-nodejs20')} sh -c {shlex.quote(cmd)}"; cwd = root
-    r = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        image = os.getenv("SANDBOX_IMAGE", "nikolaik/python-nodejs:python3.12-nodejs20")
+        network = "bridge" if os.getenv("SANDBOX_NETWORK", "0") == "1" else "none"
+        uid = os.getuid() if hasattr(os, "getuid") else 1000
+        gid = os.getgid() if hasattr(os, "getgid") else 1000
+        argv = [
+            "docker", "run", "--rm", "--network", network,
+            "--memory=1g", "--cpus=1", "--pids-limit=128",
+            "--cap-drop=ALL", "--security-opt=no-new-privileges",
+            "--user", f"{uid}:{gid}", "--tmpfs", "/tmp:rw,noexec,nosuid,size=256m",
+            "--mount", f"type=bind,src={root},dst=/workspace",
+            "--workdir", "/workspace" if rel == "." else "/workspace/" + rel,
+            image, "sh", "-lc", cmd,
+        ]
+        try:
+            r = subprocess.run(argv, cwd=root, capture_output=True, text=True, timeout=timeout)
+        except FileNotFoundError:
+            return "Docker sandbox requested but Docker is unavailable; refusing to execute on the host."
+    elif os.getenv("SANDBOX_ALLOW_HOST_EXECUTION", "0") == "1":
+        # Explicit development-only escape hatch. Never enable on a public deployment.
+        r = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True,
+                           timeout=timeout, env={"PATH": os.getenv("PATH", "/usr/bin:/bin"),
+                                                "HOME": str(root), "LANG": "C.UTF-8",
+                                                "WORKSPACE": str(root)})
+    else:
+        return ("no isolated command runner is configured. Enable SANDBOX_DOCKER=1 on a host "
+                "with Docker available; host-shell fallback is disabled.")
     out = r.stdout + r.stderr
     token = connections.get_access_token("github") or os.getenv("GITHUB_TOKEN", "")
     if token: out = out.replace(token, "***")
@@ -82,7 +111,7 @@ def search_code(pattern, glob="*"):
 
 @tool("run_command", "Run a shell command in the workspace (tests, installs, builds, linters).", {"command": ("string", "shell command"), "cwd?": ("string", "subdirectory")})
 def run_command(command, cwd="."):
-    if os.getenv("ALLOW_SHELL", "1") != "1": return "shell disabled (ALLOW_SHELL=0)"
+    if os.getenv("ALLOW_SHELL", "0") != "1": return "shell disabled by policy (ALLOW_SHELL=0)"
     try: return sh(command, safe(cwd))
     except subprocess.TimeoutExpired: return "timed out after 120s"
 
