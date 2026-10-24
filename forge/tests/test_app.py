@@ -33,3 +33,27 @@ def test_connections_endpoint_has_github_and_render_states():
     assert set(body) == {"github", "render"}
     assert isinstance(body["github"]["connected"], bool)
     assert isinstance(body["render"]["connected"], bool)
+
+
+
+def test_custom_prompt_settings_round_trip(tmp_path, monkeypatch):
+    target = tmp_path / "custom_prompt.txt"
+    monkeypatch.setattr(app, "CUSTOM_PROMPT", target)
+    response = client.get("/api/settings/prompt")
+    assert response.status_code == 200
+    assert response.json() == {"prompt": ""}
+
+    response = client.put("/api/settings/prompt", json={"prompt": "Prefer small, tested changes."})
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert client.get("/api/settings/prompt").json()["prompt"] == "Prefer small, tested changes."
+
+
+def test_custom_prompt_rejects_oversized_input():
+    response = client.put("/api/settings/prompt", json={"prompt": "x" * 12001})
+    assert response.status_code == 413
+
+
+def test_custom_prompt_rejects_non_text_input():
+    response = client.put("/api/settings/prompt", json={"prompt": ["not", "text"]})
+    assert response.status_code == 400
