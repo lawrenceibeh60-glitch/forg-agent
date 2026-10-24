@@ -23,6 +23,16 @@ BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico", ".pdf", ".z
                    ".tar", ".mp4", ".mp3", ".wav", ".woff", ".woff2", ".ttf", ".otf", ".so", ".dll"}
 
 
+
+
+async def _run_process(box, *args, timeout=None, **kwargs):
+    """Run a sandbox process with a client-side timeout; SDK run_process has no timeout kwarg."""
+    process = box.run_process(*args, **kwargs)
+    if timeout is None:
+        return await process
+    return await asyncio.wait_for(process, timeout=max(1, float(timeout)))
+
+
 def _secret_path(path: Path) -> bool:
     return (path.name in SKIP_FILES or path.name in SKIP_NAMES
             or path.name.startswith(".env.") or path.suffix.lower() in SECRET_SUFFIXES
@@ -108,17 +118,17 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
                 network_policy=network_policy,
                 tags={"app": "forge-agent", "purpose": "workspace"},
             )
-        mkdir = await box.run_process("mkdir", ["-p", "/workspace"], capture_output=True, check=False)
+        mkdir = await _run_process(box, "mkdir", ["-p", "/workspace"], capture_output=True, check=False)
         if getattr(mkdir, "exit_code", 1) != 0:
             return "Vercel Sandbox failed to prepare /workspace: " + str(getattr(mkdir, "stderr", ""))[:1000]
         for rel, text in staged:
             remote = Path("/workspace") / rel
-            await box.run_process("mkdir", ["-p", str(remote.parent)], capture_output=True, check=True)
+            await _run_process(box, "mkdir", ["-p", str(remote.parent)], capture_output=True, check=True)
             await box.fs.write_text(str(remote), text)
 
         remote_cwd = Path("/workspace") if str(relative_cwd) == "." else Path("/workspace") / relative_cwd
         started = time.monotonic()
-        result = await box.run_process(
+        result = await _run_process(box, 
             "bash", ["-lc", command], cwd=str(remote_cwd),
             capture_output=True, check=False, timeout=limit,
         )
@@ -127,7 +137,7 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
         exit_code = getattr(result, "exit_code", None)
 
         # Sync text outputs only. Validate paths and skip secrets before writing locally.
-        listing = await box.run_process("find", ["/workspace", "-type", "f", "-print"], capture_output=True, check=False)
+        listing = await _run_process(box, "find", ["/workspace", "-type", "f", "-print"], capture_output=True, check=False)
         changed = 0
         for raw_path in (getattr(listing, "stdout", "") or "").splitlines():
             try:
