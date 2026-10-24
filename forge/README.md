@@ -34,3 +34,10 @@ The Blueprint runs the service from `forge/` with `python -m pip install -r requ
 - Safety: shell, git, PR, deploy and MCP tools ask for approval unless Auto-approve is enabled.
 - Sandbox: each chat gets its own `workspace/<chat-id>` folder; code can be created, run and downloaded as a ZIP. `SANDBOX_DOCKER=1` enables optional Docker isolation when Docker is available.
 - GitHub supports interactive OAuth sign-in and stores its access token encrypted at rest. `GITHUB_TOKEN` remains an optional service-account fallback. The OAuth app client ID/secret are configured once by the deployment owner, not entered by each user. Render's public REST API still requires a Render API key. Render also provides an OAuth-enabled MCP server, but the current MCP client does not yet implement its browser callback flow; the UI reports Render as connected only when an API key or an actual connected Render MCP server is present.
+
+
+### Live previews
+
+For runnable web projects, Forge provides `preview_start` and `preview_stop` tools. The preview tool stages workspace files into a separate Render sandbox, installs project dependencies there, starts a detected HTML/static, Vite/React, Flask, or FastAPI/Uvicorn server, and creates a temporary HTTPS link using a Cloudflare Quick Tunnel. A custom server command and port can be supplied when auto-detection is not enough.
+
+Preview sandboxes are temporary (configured for up to one hour), use outbound network access to fetch dependencies and establish the tunnel, and are isolated from the Forge web service. Links are public to anyone who has them; do not put credentials, private datasets, or secrets in a preview. The server-side workspace deliberately excludes environment files and credential material. Use `preview_stop` to terminate the active preview early. This feature still requires Render Sandboxes to be enabled and correctly configured; it does not bypass a Render sandbox provisioning or API failure.
