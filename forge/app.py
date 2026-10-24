@@ -644,16 +644,27 @@ async def prov_test():
 @app.get("/api/sandbox/status")
 def sandbox_status():
     try:
-        import render_sandbox
-        remote = render_sandbox.status()
+        if os.getenv("SANDBOX_VERCEL", "0") == "1":
+            import vercel_sandbox
+            remote = vercel_sandbox.status()
+            provider = "vercel-managed"
+        elif os.getenv("SANDBOX_RENDER", "0") == "1":
+            import render_sandbox
+            remote = render_sandbox.status()
+            provider = "render-managed"
+        else:
+            remote = {"enabled": False, "configured": False, "sdk_installed": False,
+                      "ready": False, "reason": "No managed sandbox provider is selected."}
+            provider = "disabled"
     except Exception as exc:
         remote = {"enabled": False, "configured": False, "sdk_installed": False,
                   "ready": False, "reason": f"status check failed: {type(exc).__name__}"}
+        provider = "disabled"
     shell_enabled = os.getenv("ALLOW_SHELL", "0") == "1"
     docker_ready = shell_enabled and bool(shutil.which("docker")) and os.getenv("SANDBOX_DOCKER", "0") == "1"
     host_exec = shell_enabled and os.getenv("SANDBOX_ALLOW_HOST_EXECUTION", "0") == "1"
-    execution = "render-managed" if remote.get("ready") else ("docker-isolated" if docker_ready else ("development-host" if host_exec else "disabled"))
-    safe_reason = "" if execution in {"render-managed", "docker-isolated", "development-host"} else remote.get("reason") or "No isolated command runner is configured."
+    execution = provider if remote.get("ready") and shell_enabled else ("docker-isolated" if docker_ready else ("development-host" if host_exec else "disabled"))
+    safe_reason = "" if execution in {"vercel-managed", "render-managed", "docker-isolated", "development-host"} else remote.get("reason") or "No isolated command runner is configured."
     return {"files": True, "download_zip": True, "execution": execution,
             "sandbox": remote, "safe_reason": safe_reason}
 
