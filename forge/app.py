@@ -1200,17 +1200,11 @@ def ops_overview():
     except Exception as exc:
         task_health = {"ok": False, "error": type(exc).__name__}
     try:
-        if os.getenv("SANDBOX_VERCEL", "0") == "1":
-            import vercel_sandbox
-            sandbox_health = vercel_sandbox.status()
-            sandbox_health["provider"] = "vercel"
-        elif os.getenv("SANDBOX_RENDER", "0") == "1":
-            import render_sandbox
-            sandbox_health = render_sandbox.status()
-            sandbox_health["provider"] = "render"
-        else:
-            sandbox_health = {"configured": False, "ready": False, "provider": "disabled",
-                              "reason": "No managed sandbox provider is selected."}
+        # Use the same central router as command execution so status cannot
+        # claim a provider is live-ready merely because its SDK is installed.
+        import sandbox_core
+        sandbox_health = sandbox_core.status()
+        sandbox_health["provider"] = sandbox_health.get("provider") or "disabled"
     except Exception as exc:
         sandbox_health = {"configured": False, "ready": False, "provider": "unknown",
                           "reason": type(exc).__name__}
