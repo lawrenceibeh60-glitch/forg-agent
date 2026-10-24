@@ -82,6 +82,17 @@ def _stage_files(source: Path):
     return files, total
 
 
+def _command_timeout(timeout: int, configured: str | None = None) -> int:
+    """Honor longer tool timeouts while enforcing a hard 15-minute command cap."""
+    if configured is None:
+        configured = os.getenv("SANDBOX_COMMAND_TIMEOUT", "900")
+    try:
+        cap = int(configured)
+    except (TypeError, ValueError):
+        cap = 900
+    return max(1, min(int(timeout), max(1, min(cap, 900))))
+
+
 async def _run(command: str, cwd: Path, timeout: int) -> str:
     from vercel import sandbox
     from vercel.sandbox import NetworkPolicy
@@ -95,13 +106,8 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
         raise ValueError("sandbox workspace is outside WORKSPACE")
     relative_cwd = root.relative_to(active_root)
     staged, total = _stage_files(active_root)
-    try:
-        command_cap = int(os.getenv("SANDBOX_COMMAND_TIMEOUT", "900"))
-    except (TypeError, ValueError):
-        command_cap = 900
-    # Keep per-command execution bounded, but don't silently cut longer tool
-    # requests back to 120 seconds when the caller explicitly requested more.
-    limit = max(1, min(int(timeout), max(1, min(command_cap, 900))))
+    # Keep execution bounded without silently reducing a caller's longer timeout.
+    limit = _command_timeout(timeout)
     region = os.getenv("VERCEL_SANDBOX_REGION", "bom1").strip() or "bom1"
     # One persistent, named Linux sandbox per workspace: package installs and
     # user-created files survive subsequent tool calls and snapshots.
