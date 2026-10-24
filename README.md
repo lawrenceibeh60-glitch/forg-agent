@@ -2,6 +2,12 @@
 
 Forge is a streaming, tool-using AI workspace with configurable OpenAI-compatible / Anthropic providers, GitHub and Render integrations, reference-image input, per-session workspaces, task checkpoints, and an opt-in model fallback.
 
+## Autonomous execution orchestration
+
+The agent now seeds a task-aware execution plan and persists structured step state with bounded checkpoints. Plans distinguish pending, active, completed, and blocked work; confirmed completion evidence is retained when the model refines a plan. Tool-call events expose an advisory risk category for transparency, while the existing independent authorization gate remains authoritative. Checkpoints omit secret-named fields and retain bounded tool/result evidence so interrupted sessions can be diagnosed rather than restarted blindly.
+
+The Render sandbox now filters more credential material (including SSH/cloud credential directories, package-manager credentials, certificate/key files, and explicit secrets/credentials directories), syncs only changed files back, refuses to overwrite symlinks, validates network policy, and caps configured command timeouts. The sandbox remains fail-closed: these code changes do not enable it automatically. A live end-to-end test still requires valid Render sandbox credentials and workspace entitlement.
+
 ## Adaptive Agent Engine v2
 
 Forge now includes a task-aware runtime layer intended to make the configured model more effective at real engineering work instead of merely exposing a large flat tool list.
