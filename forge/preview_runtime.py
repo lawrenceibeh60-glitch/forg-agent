@@ -35,6 +35,17 @@ async def _run_process(box, *args, timeout=None, **kwargs):
     return await box.run_process(*args, **kwargs)
 
 
+def _returncode(result: Any, default: int = 1) -> int:
+    """Read the return-code field exposed by the official Sandbox SDK."""
+    value = getattr(result, "returncode", None)
+    if value is None:
+        value = getattr(result, "exit_code", None)
+    try:
+        return int(value) if value is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
 def detect_preview(root: Path, port: int | None = None) -> dict[str, Any]:
     """Infer a conservative web start command from common project manifests."""
     root = root.resolve()
@@ -164,7 +175,7 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
         if deps_command:
             result = await _run_process(box, "bash", ["-lc", "cd /workspace && " + deps_command],
                                            capture_output=True, check=False)
-            if getattr(result, "returncode", getattr(result, "exit_code", 1)) != 0:
+            if _returncode(result) != 0:
                 detail = ((getattr(result, "stdout", "") or "") + (getattr(result, "stderr", "") or ""))[-2500:]
                 raise RuntimeError("Dependency install failed: " + detail)
         launch = "cd " + shlex.quote(cwd) + " && exec " + start_command
