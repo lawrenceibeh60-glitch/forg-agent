@@ -6,6 +6,12 @@ import app
 
 
 class ConversationCompactionTests(unittest.IsolatedAsyncioTestCase):
+    def test_session_ids_cannot_escape_session_directory(self):
+        with self.assertRaises(ValueError):
+            app.session_path("../secrets")
+        with self.assertRaises(ValueError):
+            app.session_path("session/with/slash")
+
     async def test_recent_user_turns_and_referents_survive_compaction(self):
         messages = [{"role": "system", "content": "system prompt"}]
         for i in range(8):
@@ -15,8 +21,6 @@ class ConversationCompactionTests(unittest.IsolatedAsyncioTestCase):
         messages.append({"role": "assistant", "content": "I asked you to choose a theme."})
         messages.append({"role": "user", "content": "The dark blue and silver one."})
         messages.append({"role": "assistant", "content": "Got it, dark blue and silver."})
-        original_recent = [m.copy() for m in messages[-12:]]
-
         async def fake_stream(_messages, _tools):
             yield "message", {"role": "assistant", "content": "Older history summary: prior requests and decisions."}
 
