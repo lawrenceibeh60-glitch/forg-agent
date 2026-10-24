@@ -4,7 +4,7 @@ Forge remains a Python/Flask application. `neon.ts` is Neon deployment configura
 
 ## Declared services
 
-- **Postgres:** link the intended Neon project and `production` branch locally with the Neon CLI. The `.neon` link file is intentionally ignored by Git.
+- **Postgres:** the project and `production` branch are recorded in `.neon.example`. Copy it to `.neon` locally; `.neon` itself is intentionally ignored by Git.
 - **Auth:** Neon Managed Auth is enabled in the service configuration. Forge already uses GitHub-based access control; do not replace that identity flow without an explicit migration plan.
 - **AI Gateway:** enabled in the service configuration. Forge's model routing remains configured through `XKIRO_BASE_URL`, `XKIRO_MODEL`, and `XKIRO_API_KEY`; enabling the gateway does not automatically route requests through it.
 - **Functions:** `hello.ts` is a minimal deployment/smoke endpoint.
@@ -23,7 +23,7 @@ Configure these as encrypted hosting-provider environment variables, never commi
 
 ## CLI operations
 
-After authenticating the Neon CLI in an interactive terminal, run from the repository root:
+After copying `.neon.example` to `.neon` and authenticating the Neon CLI in an interactive terminal, run from the repository root:
 
 ```sh
 npm run neon:plan
