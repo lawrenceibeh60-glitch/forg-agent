@@ -152,9 +152,13 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
             box = await sandbox.create_sandbox(
                 name=name, image=image, ports=[port],
                 execution_time_limit=MAX_PREVIEW_SECONDS, persistent=True,
+                region=region,
                 network_policy=NetworkPolicy.allow_all(),
                 tags={"app": "forge-agent", "purpose": "live-preview"},
             )
+        # Existing named sandboxes keep their original policy. Refresh it on every
+        # launch so a sandbox created under an older deny-all setting cannot block installs.
+        await box.update(network_policy=NetworkPolicy.allow_all(), ports=[port])
         staged_count, staged_bytes = await _write_workspace(box, project)
         cwd = "/workspace"
         if deps_command:
