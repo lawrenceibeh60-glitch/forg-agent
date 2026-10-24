@@ -1,32 +1,90 @@
-"""Sandbox, repo workflow, background processes and Render operations."""
 import os, re, json, time, shlex, signal, subprocess, base64
-import httpx
+import httpx, connections
+from pathlib import Path
 from tools import tool, safe, ROOT, sh, gh, rd
 from tools_extra import detect_stack, tree, T
 
-def tok(): return os.environ["GITHUB_TOKEN"]
+def tok(): return connections.get_access_token("github") or os.getenv("GITHUB_TOKEN", "")
+
+def git_run(d, *args, timeout=120):
+    """Run fixed-argument git commands on the trusted host, not the arbitrary-code sandbox."""
+    d = Path(d).resolve()
+    root = Path(os.getenv("WORKSPACE", "workspace")).resolve()
+    if d != root and root not in d.parents:
+        raise ValueError("git working directory escapes the workspace")
+    env = os.environ.copy()
+    token = tok()
+    if token:
+        env["GIT_CONFIG_COUNT"] = "1"
+        env["GIT_CONFIG_KEY_0"] = "http.https://github.com/.extraheader"
+        env["GIT_CONFIG_VALUE_0"] = "AUTHORIZATION: basic " + base64.b64encode(("x-access-token:" + token).encode()).decode()
+    result = subprocess.run(["git", *map(str, args)], cwd=d, env=env, capture_output=True,
+                            text=True, timeout=timeout)
+    output = (result.stdout + result.stderr).strip()
+    if result.returncode:
+        return f"git {args[0]} failed (exit {result.returncode}): {output[-2500:]}"
+    return output or f"git {args[0]} completed"
+
 def setup_git(d):
     u = gh("GET", "/user")
-    n = os.getenv("GIT_NAME") or u.get("name") or u.get("login", "forge")
-    e = os.getenv("GIT_EMAIL") or f"{u.get('id', 0)}+{u.get('login', 'forge')}@users.noreply.github.com"
-    sh(f"git config user.name {shlex.quote(n)} && git config user.email {shlex.quote(e)}", d)
+    if not isinstance(u, dict) or u.get("error"):
+        login, uid, display = "forge", 0, ""
+    else:
+        login, uid, display = u.get("login", "forge"), u.get("id", 0), u.get("name", "")
+    git_run(d, "config", "user.name", os.getenv("GIT_NAME") or display or login)
+    git_run(d, "config", "user.email", os.getenv("GIT_EMAIL") or f"{uid}+{login}@users.noreply.github.com")
 
-# ===================== repo workflow =====================
-@tool("repo_open", "Clone (or update) a GitHub repo into the sandbox, set git identity, optionally switch/create a branch, and return its stack + file tree. Start every repo task with this.", {"repo": ("string", "owner/name"), "branch?": ("string", "branch to check out or create")})
+@tool("repo_open", "Clone or update a GitHub repo into the workspace, configure git identity, optionally switch/create a branch, and return its stack and file tree. Use this to begin repository tasks.", {"repo": ("string", "owner/name"), "branch?": ("string", "optional branch to check out or create")})
 def repo_open(repo, branch=""):
-    name = repo.split("/")[1]; d = safe(name)
-    out = sh("git fetch --all -q; git pull --ff-only", d) if (d / ".git").exists() else sh(f"git clone https://{tok()}@github.com/{repo}.git {name}")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo or ""):
+        return "Invalid repository. Use owner/name."
+    if not tok():
+        return "GitHub is not connected. Connect GitHub in Settings or configure GITHUB_TOKEN."
+    name = repo.split("/")[1]
+    d = safe(name)
+    if (d / ".git").exists():
+        out = git_run(d, "fetch", "--all", "-q")
+        if "failed" not in out:
+            out += "\n" + git_run(d, "pull", "--ff-only")
+    else:
+        out = git_run(ROOT.get(), "clone", f"https://github.com/{repo}.git", name)
+    if "failed" in out:
+        return out
     setup_git(d)
-    if branch: out += "\n" + sh(f"git checkout {shlex.quote(branch)} 2>/dev/null || git checkout -b {shlex.quote(branch)}", d)
+    if branch:
+        exists = subprocess.run(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], cwd=d).returncode == 0
+        out += "\n" + (git_run(d, "checkout", branch) if exists else git_run(d, "checkout", "-b", branch))
     return f"{out}\nrepo_dir: {name}\n{detect_stack(name)}\n{tree(name, 2)}"
 
-@tool("repo_commit_push", "Stage everything, commit and push to a feature branch. Refuses main/master.", {"repo_dir": ("string", "folder"), "message": ("string", "commit message"), "branch?": ("string", "branch to use/create")})
+@tool("repo_commit_push", "Stage changes, commit, and push the current feature branch to GitHub. Never commits to main/master.", {"repo_dir": ("string", "folder"), "message": ("string", "commit message"), "branch?": ("string", "optional feature branch to use/create")})
 def repo_commit_push(repo_dir, message, branch=""):
-    d = safe(repo_dir); cur = sh("git rev-parse --abbrev-ref HEAD", d).split("\n")[0]
+    d = safe(repo_dir)
+    if not (d / ".git").is_dir():
+        return f"{repo_dir} is not a cloned Git repository. Use repo_open first."
+    if not tok():
+        return "GitHub is not connected. Connect GitHub in Settings or configure GITHUB_TOKEN."
+    cur = git_run(d, "branch", "--show-current")
+    if "failed" in cur:
+        return cur
     if branch and branch != cur:
-        sh(f"git checkout {shlex.quote(branch)} 2>/dev/null || git checkout -b {shlex.quote(branch)}", d); cur = branch
-    if cur in ("main", "master", "HEAD"): return "refused: pass branch=<feature-branch>, never commit to main"
-    return sh(f"git add -A && git commit -m {shlex.quote(message)}", d) + "\n" + sh(f"git push -u origin {shlex.quote(cur)}", d)
+        exists = subprocess.run(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], cwd=d).returncode == 0
+        out = git_run(d, "checkout", branch) if exists else git_run(d, "checkout", "-b", branch)
+        if "failed" in out:
+            return out
+        cur = branch
+    if cur in ("main", "master", ""):
+        return "Refused to commit directly to main/master. Create or select a feature branch and retry."
+    staged = git_run(d, "add", "-A")
+    if "failed" in staged:
+        return staged
+    status = git_run(d, "status", "--porcelain")
+    if not status:
+        return "No changes to commit; working tree is clean."
+    committed = git_run(d, "commit", "-m", message)
+    if "failed" in committed:
+        return committed
+    pushed = git_run(d, "push", "-u", "origin", cur)
+    return f"{committed}\n{pushed}"
 
 @tool("github_create_repo", "Create a new GitHub repository.", {"name": ("string", ""), "private?": ("boolean", "default true"), "description?": ("string", "")})
 def github_create_repo(name, private=True, description=""):
