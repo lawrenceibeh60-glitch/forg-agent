@@ -266,6 +266,7 @@ async def chat(req: Req):
             last_verification_output = ""
             sandbox_blocked = False
             sandbox_block_reason = ""
+            sandbox_recovery_notified = False
             sandbox_failure_count = 0
             action_failures = {}
             repeated_action_blocks = 0
@@ -430,18 +431,17 @@ async def chat(req: Req):
                             reason=repeated_failure_reason[:1000], repeated_action_blocks=repeated_action_blocks,
                             failed_action_count=len(action_failures), next_action="Use independent diagnosis or fix the recorded precondition"))
                     break
-                if sandbox_blocked:
-                    # Disable only command execution, not the whole task. The model can
-                    # still inspect/edit files, reason about the failure, use GitHub tools,
-                    # write tests, and prepare a useful partial deliverable.
-                    yield sse("progress", {"text": "Command execution is unavailable; continuing with independent work and static verification."})
+                if sandbox_blocked and not sandbox_recovery_notified:
+                    # A failed executor disables only unsafe retries, never unrelated work.
+                    yield sse("progress", {"text": "One execution route failed; continuing with other available work and static verification."})
                     msgs.append({"role": "user", "content":
-                        "[COMMAND EXECUTION UNAVAILABLE — CONTINUE THE TASK] A command tool returned a confirmed sandbox infrastructure/configuration error. "
-                        "Do not call command, shell, test-runner, interpreter, Docker, or sandbox tools again in this task. "
-                        "This restriction applies only to execution tools; continue useful independent work with file inspection/editing, source review, documentation, GitHub operations, and other available tools. "
-                        "If an outcome depends on executing code, prepare it as far as possible, perform static checks, preserve a checkpoint, and identify the unresolved verification step. "
-                        "Do not declare the whole task blocked while useful independent work remains. Do not claim tests passed.\nConfirmed execution blocker: " + sandbox_block_reason[:1000]})
-                    # Continue the loop: the next model cycle can complete non-execution work.
+                        "[EXECUTION ROUTE FAILED — CONTINUE OTHER WORK] One execution tool confirmed this infrastructure/configuration error: "
+                        + sandbox_block_reason[:1000] + ". Do not repeat that failed execution route or use cosmetic variations of it. "
+                        + "This does NOT block the overall task. Continue independently with file inspection/editing, source review, documentation, GitHub operations, and other available tools. "
+                        + "If a different execution backend is already configured and genuinely independent, you may diagnose whether it is usable; do not keep retrying the same broken backend. "
+                        + "Preserve a checkpoint and identify only the exact steps that truly require unavailable execution. Do not claim tests passed unless they actually did."})
+                    sandbox_recovery_notified = True
+                    # Continue the loop; do not break merely because one executor failed.
         except asyncio.CancelledError:
             task_status = "blocked"
             tasks.update(task_id, status="blocked", last_error="The streaming request was interrupted; resume from the saved checkpoint.", current_step="Connection interrupted; checkpoint saved", checkpoint={"phase": "client_cancelled", "message_count": len(msgs), "turn": locals().get("turn", 0)})
