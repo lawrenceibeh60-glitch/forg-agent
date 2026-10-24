@@ -46,6 +46,12 @@ PENDING = {}
 
 @asynccontextmanager
 async def life(_):
+    try:
+        recovered = tasks.recover_interrupted()
+        if recovered:
+            print(f"Recovered {recovered} interrupted task checkpoint(s).")
+    except Exception as exc:
+        print("Task checkpoint recovery unavailable:", type(exc).__name__)
     for n, c in mcp.saved().items():
         try: await mcp.connect(n, c, persist=False)
         except Exception as e: print("MCP", n, "failed:", e)
@@ -499,6 +505,8 @@ def sessions():
 
 @app.get("/api/sessions/{sid}")
 def session(sid: str):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
     return [m for m in load(sid) if m["role"] in ("user", "assistant") and m.get("content") and not str(m["content"]).startswith(("[Automatic check]", "[Summary of"))]
 
 @app.get("/api/mcp")
