@@ -77,7 +77,14 @@ async def compact(msgs):
         if m.get("role") == "tool" and isinstance(m.get("content"), str) and len(m["content"]) > 1800:
             m["content"] = m["content"][:1800] + "\n…[older tool output truncated; inspect again if needed]"
     total = sum(len(str(m.get("content") or "")) + len(str(m.get("tool_calls") or "")) for m in msgs)
-    if total < 32000:
+    try:
+        context_budget = int(os.getenv("FORGE_CONTEXT_BUDGET_CHARS", "90000"))
+    except (TypeError, ValueError):
+        context_budget = 90000
+    # This is a character-based safety budget, deliberately below common large
+    # model context windows to leave room for schemas and provider overhead.
+    context_budget = max(32000, min(context_budget, 240000))
+    if total < context_budget:
         return
     user_indices = [i for i, m in enumerate(msgs) if m.get("role") == "user"]
     # Preserve the last six user turns and everything after them, including
@@ -243,7 +250,11 @@ async def chat(req: Req):
                         routing_parts.append(str(item.get("content") or "")[:500])
                 routing_context = "\n".join(routing_parts[-12:])[-12000:]
                 task_mode = agent_runtime.classify_task(routing_context)
-                active_schemas = agent_runtime.select_schemas(schemas(), routing_context)
+                try:
+                    tool_budget = int(os.getenv("FORGE_AGENT_TOOL_BUDGET", "42"))
+                except (TypeError, ValueError):
+                    tool_budget = 42
+                active_schemas = agent_runtime.select_schemas(schemas(), routing_context, max_tools=tool_budget)
                 model_purpose = "coding" if task_mode == "engineering" else ("review" if task_mode == "research" else "general")
                 async for kind, val in llm.stream(msgs, active_schemas, purpose=model_purpose):
                     if kind == "text": turn_text.append(val)
