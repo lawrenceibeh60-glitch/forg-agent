@@ -228,6 +228,16 @@ async def chat(req: Req):
                     yield sse("tool_result", {"id": c["id"], "output": str(out)[:4000]})
                     yield sse("progress", {"text": f"Received result from {name}; evaluating the result and next step."})
                     msgs.append({"role": "tool", "tool_call_id": c["id"], "content": str(out)[:12000]})
+                    if name == "update_plan" and isinstance(args.get("steps"), str):
+                        plan_items = []
+                        plan_done = []
+                        for line in args["steps"].splitlines()[:80]:
+                            label = re.sub(r"^\s*(?:[-*+]\s*)?(?:\[[ xX]\]\s*)?\d*[.)]?\s*", "", line).strip()
+                            if label:
+                                plan_items.append(label[:300])
+                                if re.search(r"\[[xX]\]", line):
+                                    plan_done.append(label[:300])
+                        tasks.update(task_id, plan=plan_items, completed=plan_done, current_step=next((item for item in plan_items if item not in plan_done), "Plan recorded"))
                     tasks.update(task_id, current_step=f"Reviewed result from {name}", checkpoint={"phase": "tool_result", "turn": turn, "last_tool": name, "last_tool_result": str(out)[:1500], "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs)})
         except Exception as e:
             task_status = "failed"
