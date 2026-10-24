@@ -169,7 +169,7 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
                      " >/tmp/forge-preview-app.log 2>&1 </dev/null & echo $! >/tmp/forge-preview-app.pid"],
             capture_output=True, check=False,
         )
-        if getattr(result, "exit_code", 1) != 0:
+        if getattr(result, "returncode", getattr(result, "exit_code", 1)) != 0:
             raise RuntimeError("Could not launch preview server: " + str(getattr(result, "stderr", ""))[-1500:])
         ready = False
         for _ in range(30):
@@ -240,7 +240,7 @@ def start_preview(session: str, root: Path, path: str = ".", command: str = "",
         _save(records)
         return (f"Live preview is ready: [Open preview]({url})\n\n"
                 f"Runtime: {selected.get('kind', 'custom')} · Linux sandbox · port {selected_port} · "
-                f"{staged_count} files staged ({staged_bytes // 1024} KB) · expires in "
+                f"{staged_count} files staged ({staged_bytes} bytes) · expires in "
                 f"{MAX_PREVIEW_SECONDS // 60} minutes.\n"
                 "Vercel's exposed-port HTTPS routing is used directly; no Render service or tunnel is needed. "
                 "The link is public to anyone who has it; do not put secrets or private data in the preview.")
