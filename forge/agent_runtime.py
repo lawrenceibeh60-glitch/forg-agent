@@ -37,6 +37,13 @@ ALIASES = {
     "bug": "search_code read_file read_many run_tests lint run_command git_changes git_show",
     "error": "search_code read_file read_many run_tests lint run_command web_search web_fetch",
     "fix": "list_files tree read_file read_many search_code find_references edit_file apply_patch write_file run_tests lint git_changes",
+    "add": "list_files tree read_file read_many search_code find_references edit_file apply_patch write_file make_dir run_tests lint",
+    "update": "list_files tree read_file read_many search_code find_references edit_file apply_patch write_file run_tests lint git_changes",
+    "improve": "list_files tree read_file read_many search_code find_references edit_file apply_patch write_file run_tests lint git_changes",
+    "refactor": "project_map find_symbol find_references dependency_graph read_file read_many edit_file apply_patch run_tests lint",
+    "feature": "project_map find_symbol find_references dependency_graph read_file read_many write_file edit_file apply_patch run_tests lint",
+    "frontend": "tree glob_files read_file read_many search_code find_references write_file edit_file apply_patch run_command run_tests",
+    "ui": "tree glob_files read_file read_many search_code write_file edit_file apply_patch run_tests",
     "build": "list_files tree detect_stack read_file read_many search_code write_file edit_file apply_patch run_command run_tests lint sandbox_info",
     "implement": "list_files tree detect_stack read_file read_many search_code find_references write_file edit_file apply_patch run_command run_tests lint git_changes",
     "create": "list_files tree detect_stack read_file write_file edit_file make_dir run_command run_tests",
@@ -89,6 +96,8 @@ def classify_task(text: str) -> str:
     """Choose an operating mode from the request and recent user intent."""
     value = (text or "")[-12000:]
     if CODING_TERMS.search(value):
+        return "engineering"
+    if re.search(r"\b(add|implement|improve|upgrade|change|update|integrate|refactor|fix|build|create|remove|optimize|support)\b", value, re.I) and re.search(r"\b(feature|tool|workflow|interface|screen|button|component|endpoint|route|model|provider|agent|memory|sandbox|security|performance|test|deployment|database|schema|project)\b", value, re.I):
         return "engineering"
     if RESEARCH_TERMS.search(value):
         return "research"
@@ -199,6 +208,11 @@ def workspace_snapshot(root: str | Path, max_files: int = 90, max_manifest_chars
                     if len(found_manifests) < 8:
                         try:
                             raw = path.read_text(encoding="utf-8", errors="replace")
+                            raw = re.sub(
+                                r"(?im)^([ \t]*(?:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PRIVATE[_-]?KEY|CLIENT[_-]?SECRET)[A-Z0-9_]*|password|secret|token)\s*[:=]\s*).+$",
+                                r"\1[REDACTED]",
+                                raw,
+                            )
                             found_manifests.append(f"--- {name} ---\n{raw[:max_manifest_chars]}")
                         except OSError:
                             pass
