@@ -111,3 +111,9 @@ def test_github_mission_control_handles_disconnected_account(monkeypatch):
     assert body["connected"] is False
     assert body["repositories"] == []
     assert "Connect GitHub" in body["message"]
+
+
+def test_eval_run_requires_explicit_token_cost_confirmation():
+    response = client.post("/api/evals/run", json={"confirm": False, "limit": 1})
+    assert response.status_code == 400
+    assert "token-cost warning" in response.json()["error"]
