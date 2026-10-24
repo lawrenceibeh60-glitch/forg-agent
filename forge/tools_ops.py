@@ -95,9 +95,18 @@ def github_create_repo(name, private=True, description=""):
 def publish_to_github(dir, repo_name, private=True):
     d = safe(dir); r = gh("POST", "/user/repos", json={"name": repo_name, "private": private})
     if "error" in r: return json.dumps(r)[:300]
-    sh("git init -q -b main", d); setup_git(d)
-    o = sh(f"git add -A && git commit -qm 'Initial commit'; git remote remove origin 2>/dev/null; git remote add origin https://{tok()}@github.com/{r['owner']['login']}/{repo_name}.git && git push -u origin main", d)
-    return f"{r['html_url']}\n{o}"
+    init = git_run(d, "init", "-b", "main")
+    if "failed" in init: return init
+    setup_git(d)
+    added = git_run(d, "add", "-A")
+    if "failed" in added: return added
+    committed = git_run(d, "commit", "-m", "Initial commit")
+    if "failed" in committed: return committed
+    git_run(d, "remote", "remove", "origin")
+    remote = git_run(d, "remote", "add", "origin", f"https://github.com/{r['owner']['login']}/{repo_name}.git")
+    if "failed" in remote: return remote
+    pushed = git_run(d, "push", "-u", "origin", "main")
+    return f"{r['html_url']}\n{committed}\n{pushed}"
 
 @tool("github_put_file", "Create/update a single file in a GitHub repo directly via API (no clone).", {"repo": ("string", ""), "path": ("string", ""), "content": ("string", ""), "message": ("string", ""), "branch?": ("string", "")})
 def github_put_file(repo, path, content, message, branch=""):
