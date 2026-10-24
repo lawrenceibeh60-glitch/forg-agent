@@ -321,7 +321,7 @@ def ipython_eval(code):
     quote = __import__("shlex").quote
     network_enabled = os.getenv("SANDBOX_NETWORK", "0") == "1"
     install = ("if ! command -v ipython >/dev/null 2>&1; then "
-               "python3 -m pip install --user --disable-pip-version-check ipython 2>&1 | tail -8; fi; "
+               "python3 -m pip install --user --break-system-packages --disable-pip-version-check ipython 2>&1 | tail -8; fi; "
                if network_enabled else "")
     command = (
         install
