@@ -457,16 +457,27 @@ async def approve(a: Appr):
     if f and not f.done(): f.set_result(a.ok)
     return {"ok": True}
 
+def public_task_view(task):
+    if not task:
+        return task
+    result = dict(task)
+    checkpoint = dict(result.get("checkpoint") or {})
+    # Tool output may contain project content; keep it internal for resume logic.
+    checkpoint.pop("last_tool_result", None)
+    result["checkpoint"] = checkpoint
+    return result
+
+
 @app.get("/api/tasks")
 def task_list(limit: int = 30):
-    return {"tasks": tasks.list_recent(limit), "storage": tasks.health()}
+    return {"tasks": [public_task_view(t) for t in tasks.list_recent(limit)], "storage": tasks.health()}
 
 @app.get("/api/tasks/{task_id}")
 def task_detail(task_id: str):
     task = tasks.get(task_id)
     if not task:
         return JSONResponse({"error": "task not found"}, status_code=404)
-    return task
+    return public_task_view(task)
 
 class ResumeReq(BaseModel):
     auto: bool = False
@@ -500,7 +511,7 @@ async def task_resume(task_id: str, body: ResumeReq):
 
 @app.get("/api/sessions/{sid}/tasks")
 def session_tasks(sid: str, limit: int = 10):
-    return {"tasks": tasks.list_for_session(sid, limit)}
+    return {"tasks": [public_task_view(t) for t in tasks.list_for_session(sid, limit)]}
 
 
 @app.get("/api/sessions")
