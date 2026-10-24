@@ -12,6 +12,14 @@ class ConversationCompactionTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             app.session_path("session/with/slash")
 
+    async def test_old_tool_output_budget_is_configurable(self):
+        messages = [{"role": "system", "content": "system"}]
+        messages.append({"role": "tool", "tool_call_id": "t1", "content": "x" * 7000})
+        messages.extend({"role": "assistant", "content": "recent"} for _ in range(18))
+        with patch.dict("os.environ", {"FORGE_OLD_TOOL_RESULT_CHARS": "5000", "FORGE_CONTEXT_BUDGET_CHARS": "90000"}):
+            await app.compact(messages)
+        self.assertEqual(len(messages[1]["content"]), 5000 + len("\n…[older tool output truncated; inspect again if needed]"))
+
     async def test_recent_user_turns_and_referents_survive_compaction(self):
         messages = [{"role": "system", "content": "system prompt"}]
         for i in range(8):
