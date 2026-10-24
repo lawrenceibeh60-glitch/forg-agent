@@ -26,16 +26,16 @@ Forge includes a session-scoped Project Brain panel in the sidebar:
 
 New endpoints:
 
-- \`GET /api/brain/map?sid=<session>\`
-- \`GET /api/brain/search?sid=<session>&q=<query>\`
-- \`GET /api/brain/memory?sid=<session>\`
-- \`POST /api/brain/memory\` with \`session\`, \`kind\`, \`title\`, \`body\`
-- \`DELETE /api/brain/memory/<id>?sid=<session>\`
-- \`GET /api/security/report?sid=<session>\`
-- \`GET /api/ops/overview\`
-- \`GET /api/evals/catalog\`
+- `GET /api/brain/map?sid=<session>`
+- `GET /api/brain/search?sid=<session>&q=<query>`
+- `GET /api/brain/memory?sid=<session>`
+- `POST /api/brain/memory` with `session`, `kind`, `title`, `body`
+- `DELETE /api/brain/memory/<id>?sid=<session>`
+- `GET /api/security/report?sid=<session>`
+- `GET /api/ops/overview`
+- `GET /api/evals/catalog`
 
-The intelligence database defaults to the same SQLite file as task checkpoints. For durable memory across deploys, configure \`TASK_DB_PATH\` on persistent storage. Project memory is not automatically inferred from model output; save only confirmed, useful decisions.
+The intelligence database defaults to the same SQLite file as task checkpoints. For durable memory across deploys, configure `TASK_DB_PATH` on persistent storage. Project memory is not automatically inferred from model output; save only confirmed, useful decisions.
 
 ## Environment variables
 
@@ -49,6 +49,10 @@ The intelligence database defaults to the same SQLite file as task checkpoints. 
 | `FORGE_FALLBACK_BASE_URL` | Optional fallback API base URL |
 | `FORGE_FALLBACK_MODEL` | Optional fallback model ID |
 | `FORGE_FALLBACK_KIND` | `openai` or `anthropic` |
+| `FORGE_CODING_API_KEY` / `FORGE_CODING_BASE_URL` / `FORGE_CODING_MODEL` | Optional dedicated coding model; configure all three to enable routing |
+| `FORGE_REVIEW_API_KEY` / `FORGE_REVIEW_BASE_URL` / `FORGE_REVIEW_MODEL` | Optional dedicated specialist-review model |
+| `FORGE_SUMMARY_API_KEY` / `FORGE_SUMMARY_BASE_URL` / `FORGE_SUMMARY_MODEL` | Optional lower-cost context-summary model |
+| `FORGE_CODING_KIND`, `FORGE_REVIEW_KIND`, `FORGE_SUMMARY_KIND` | Optional provider kind per route: `openai` (default) or `anthropic` |
 | `TASK_DB_PATH` | SQLite checkpoint database path; default `data/tasks.sqlite3` |
 | `FORGE_SESSION_DIR` | Session history directory; default `data/sessions` |
 | `ALLOW_SHELL` | Must be `1` to enable any command runner |
