@@ -73,9 +73,14 @@ async def compact(msgs):
     """Summarize genuinely old turns while preserving recent conversational context intact."""
     # Keep tool output from crowding the model context, but don't destroy the
     # current tool-call/result sequence or truncate the user's latest messages.
+    try:
+        old_tool_budget = int(os.getenv("FORGE_OLD_TOOL_RESULT_CHARS", "4000"))
+    except (TypeError, ValueError):
+        old_tool_budget = 4000
+    old_tool_budget = max(1200, min(old_tool_budget, 12000))
     for m in msgs[1:-16]:
-        if m.get("role") == "tool" and isinstance(m.get("content"), str) and len(m["content"]) > 1800:
-            m["content"] = m["content"][:1800] + "\n…[older tool output truncated; inspect again if needed]"
+        if m.get("role") == "tool" and isinstance(m.get("content"), str) and len(m["content"]) > old_tool_budget:
+            m["content"] = m["content"][:old_tool_budget] + "\n…[older tool output truncated; inspect again if needed]"
     total = sum(len(str(m.get("content") or "")) + len(str(m.get("tool_calls") or "")) for m in msgs)
     try:
         context_budget = int(os.getenv("FORGE_CONTEXT_BUDGET_CHARS", "90000"))
