@@ -230,7 +230,10 @@ async def chat(req: Req):
         calls = []
         task_status = "completed"
         try:
-            edited = verified = nudged = completion_checked = False
+            edited = verified = completion_checked = False
+            verification_prompts = 0
+            verification_blocked = False
+            last_verification_output = ""
             max_turns = max(40, min(80, int(os.getenv("FORGE_MAX_AGENT_TURNS", "60"))))
             for turn in range(1, max_turns + 1):
                 tasks.update(task_id, current_step=f"Reasoning cycle {turn}", checkpoint={"phase": "reasoning", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs)})
@@ -262,10 +265,10 @@ async def chat(req: Req):
                 msgs.append({k: v for k, v in m.items() if v is not None})
                 calls = m.get("tool_calls") or []
                 if not calls:
-                    if edited and not verified and not nudged:
-                        nudged = True
+                    if edited and not verified and verification_prompts < 3 and not verification_blocked:
+                        verification_prompts += 1
                         yield sse("progress", {"text": "Checking the changes instead of stopping at the first implementation."})
-                        msgs.append({"role": "user", "content": "[Required verification] You changed files but ran nothing to verify them. Do not finalize yet. Run relevant tests/linter/build or a safe smoke check, inspect the results, and fix failures. If execution is unavailable, inspect the diff and state exactly what remains unverified."})
+                        msgs.append({"role": "user", "content": "[Required verification and repair] Your changes are not yet verified, or the latest check failed. Inspect the actual check result below. If a test/lint/build failed, identify the root cause, fix it, and rerun the relevant check. If no check was run, choose the narrowest relevant test or safe smoke check. Do not claim success from merely invoking a tool. If execution is blocked by policy/configuration, stop retrying it, inspect statically, and state exactly what remains unverified.\nLast check result: " + (last_verification_output or "(no verification result recorded)")})
                         continue
                     if not completion_checked and turn < max_turns and (edited or any(item.get("role") == "tool" for item in msgs)):
                         completion_checked = True
@@ -297,8 +300,8 @@ async def chat(req: Req):
                     try: args = json.loads(raw or "{}")
                     except Exception: args = {}
                     yield sse("tool_call", {"id": c["id"], "name": name, "args": args})
-                    if name in EDIT: edited, verified = True, False
-                    if name in VERIFY: verified = True
+                    if name in EDIT:
+                        edited, verified, verification_blocked = True, False, False
                     ok = True
                     if (name.startswith("mcp__") and not req.auto) or ((name in RISKY) and not req.auto and not explicitly_authorized(req.message, name)):
                         tasks.update(task_id, status="waiting_approval", current_step=f"Waiting for approval: {name}", checkpoint={"phase": "approval", "tool": name, "turn": turn})
@@ -320,6 +323,10 @@ async def chat(req: Req):
                             out = await asyncio.to_thread(tools.REG[name], **args)
                     except Exception as e:
                         out = f"Tool {name} failed: {type(e).__name__}: {e}. Diagnose this result and try a different valid approach if possible."
+                    if name in VERIFY:
+                        last_verification_output = str(out)[:1800]
+                        verified = agent_runtime.verification_succeeded(name, last_verification_output)
+                        verification_blocked = (not verified and agent_runtime.verification_unavailable(last_verification_output))
                     yield sse("tool_result", {"id": c["id"], "output": str(out)[:4000]})
                     yield sse("progress", {"text": f"Received result from {name}; evaluating the result and next step."})
                     msgs.append({"role": "tool", "tool_call_id": c["id"], "content": str(out)[:12000]})
