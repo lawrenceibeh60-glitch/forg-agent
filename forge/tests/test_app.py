@@ -100,3 +100,14 @@ def test_workspace_zip_returns_clear_error_for_empty_workspace(tmp_path, monkeyp
     response = client.get("/api/sandbox.zip", params={"sid": "test-session"})
     assert response.status_code == 404
     assert "no downloadable files" in response.json()["error"]
+
+
+def test_github_mission_control_handles_disconnected_account(monkeypatch):
+    monkeypatch.setattr(app.connections, "get_access_token", lambda provider: "")
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    response = client.get("/api/github/mission")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["connected"] is False
+    assert body["repositories"] == []
+    assert "Connect GitHub" in body["message"]
