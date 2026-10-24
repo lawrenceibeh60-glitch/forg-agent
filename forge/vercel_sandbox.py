@@ -169,7 +169,7 @@ async def _run(command: str, cwd: Path, timeout: int) -> str:
         elapsed = round(time.monotonic() - started, 2)
         evidence = "exit status unavailable" if exit_code is None else f"exit {exit_code}"
         network_label = "allow-all" if network_enabled else "deny-all"
-        return f"{output[-6000:]}\n[{evidence}; synced {changed} changed text file(s); staged {len(staged)} file(s), {total // 1024} KB; {elapsed}s; persistent Linux sandbox {box_name}; region {region}; network {network_label}]"
+        return f"{output[-6000:]}\n[{evidence}; copied back {changed} changed text file(s); staged {len(staged)} text file(s), {total} bytes; {elapsed}s; persistent Linux sandbox {box_name}; region {region}; network {network_label}]"
     finally:
         if box is not None:
             try:
