@@ -74,6 +74,8 @@ def test_sandbox_blocker_detects_missing_runner_and_render_access():
     assert agent_runtime.sandbox_blocker("no isolated command runner is configured")
     assert agent_runtime.sandbox_blocker("Render sandbox is not configured. Required: SANDBOX_RENDER=1")
     assert agent_runtime.sandbox_blocker("Render sandbox SDK missing; install render>=1.2")
+    assert agent_runtime.sandbox_blocker("Preview failed: ClientError: create sandbox failed: not found")
+    assert agent_runtime.sandbox_blocker("Render sandbox creation failed closed: Render returned 'not found' while creating the sandbox.")
     assert agent_runtime.verification_unavailable("no isolated command runner is configured")
 
 
