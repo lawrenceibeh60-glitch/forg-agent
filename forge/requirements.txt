@@ -12,3 +12,6 @@ cryptography==44.0.2
 render>=1.4,<2
 # Official Vercel Sandbox SDK (the package providing vercel.sandbox).
 vercel-sandbox==0.10.0
+
+# Shared PostgreSQL persistence for task checkpoints and chat transcripts.
+psycopg[binary]==3.2.9
