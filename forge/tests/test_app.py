@@ -134,6 +134,13 @@ def test_eval_run_requires_explicit_token_cost_confirmation():
     assert "token-cost warning" in response.json()["error"]
 
 
+def test_load_prefers_shared_conversation_storage(monkeypatch, tmp_path):
+    messages = [{"role": "system", "content": "persisted"}, {"role": "user", "content": "hello"}]
+    monkeypatch.setattr(app.tasks, "load_session", lambda sid: messages if sid == "session-shared" else None)
+    monkeypatch.setattr(app, "SD", tmp_path)
+    assert app.load("session-shared") == messages
+
+
 def test_task_resume_continues_the_same_persisted_task(monkeypatch):
     original = {
         "id": "task-resume-123",
