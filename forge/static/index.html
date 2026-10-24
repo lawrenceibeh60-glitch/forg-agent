@@ -70,7 +70,15 @@ dialog h3{font:500 24px 'Source Serif 4',serif;margin:0}
 dialog input,dialog select,dialog textarea{width:100%;margin:4px 0;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit}
 .row{display:flex;gap:8px;align-items:center;padding:6px 0}.row b{flex:1;font-weight:500}
 .dot{width:8px;height:8px;border-radius:50%;background:#c33;flex:none}.dot.on{background:#2eb872}
-@media(max-width:800px){aside{position:fixed;z-index:5;height:100%;box-shadow:var(--sh)}aside.hide{margin-left:-290px}.hello{font-size:30px}}
+@media(max-width:800px){aside{position:fixed;z-index:6;height:100%;height:100dvh;box-shadow:var(--sh);padding-bottom:env(safe-area-inset-bottom)}aside.hide{margin-left:-290px}.hello{font-size:30px}
+body.side-open::before{content:"";position:fixed;inset:0;background:#0007;z-index:5}
+#feed{padding-bottom:12px}form{padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+.box{border-radius:18px;padding:12px 12px 9px 14px}#in{font-size:16px;min-height:30px}
+#model{max-width:120px;font-size:12px}.tg{padding:6px;font-size:12px}
+dialog{padding:16px;max-height:90dvh;overflow:auto}
+dialog input,dialog select,dialog textarea{font-size:16px}
+#pills button{font-size:12px;padding:7px 10px}
+}
 @media(prefers-reduced-motion:reduce){.spin{animation:none}}
 .i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:middle}
 #pills button{display:flex;gap:7px;align-items:center}#go{display:grid;place-items:center}.icon{display:grid;place-items:center}.row .i{color:var(--mute)}
@@ -89,7 +97,7 @@ dialog input,dialog select,dialog textarea{width:100%;margin:4px 0;padding:9px 1
 <button id="go" type="submit" aria-label="Send"><svg class="i" viewBox="0 0 24 24"><use href="#i-up"/></svg></button></div></div></form>
 <div id="pills"></div></main>
 <dialog id="set"><div class="row"><h3 style="flex:1">Settings</h3><button class="btn" onclick="set.close()">Close</button></div>
-<h4>Models</h4><div id="plist"></div>
+<h4>Models</h4><div id="plist"></div><div class="row"><button class="btn pri" id="test-model" onclick="testModel()">Test active model</button><span id="model-test-status" style="font-size:12px;color:var(--mute)"></span></div>
 <select id="pre"></select><input id="pkey" type="password" placeholder="API key"><input id="pmodel" placeholder="Model name, e.g. gpt-4.1, claude-sonnet-4-5, gemini-2.5-pro"><input id="purl" placeholder="Base URL (only for Custom or Ollama)">
 <button class="btn pri" onclick="addP()">Save model</button>
 <h4>MCP servers</h4><div id="mcp"></div>
@@ -105,9 +113,11 @@ function ico(n,c=''){return `<svg class="i ${c}" viewBox="0 0 24 24"><use href="
 let CAT={},TL=[];
 const PI={'Clone a repo':'branch','Fix bugs':'code','Review changes':'search','Deploy':'cloud','Build an app':'code','Use a tool':'plug'};
 const STAR='<svg viewBox="0 0 24 24"><use href="#star"/></svg>';
-function toggleSide(){$('#side').classList.toggle('hide')}
+function toggleSide(){const s=$('#side');s.classList.toggle('hide');document.body.classList.toggle('side-open',!s.classList.contains('hide'))}
 if(innerWidth<800)$('#side').classList.add('hide');
-async function j(u,o){const r=await fetch(u,o);if(r.status===401){const p=prompt('Password');if(p){await fetch('/api/login',{method:'POST',headers:H,body:JSON.stringify({password:p})});return j(u,o)}throw 0}return r.json()}
+document.addEventListener('click',e=>{if(document.body.classList.contains('side-open')&&e.target===document.body){$('#side').classList.add('hide');document.body.classList.remove('side-open')}});
+window.addEventListener('resize',()=>{if(innerWidth>=800){document.body.classList.remove('side-open');$('#side').classList.remove('hide')}else if(!document.body.classList.contains('side-open'))$('#side').classList.add('hide')});
+async function j(u,o){const r=await fetch(u,o);if(r.status===401){const p=prompt('Forge password');if(p){const login=await fetch('/api/login',{method:'POST',headers:H,body:JSON.stringify({password:p})});if(login.ok)return j(u,o);throw new Error('Incorrect password')}throw new Error('Sign-in required')}let data;try{data=await r.json()}catch{data={}}if(!r.ok)throw new Error(data.error||data.detail||('Request failed ('+r.status+')'));return data}
 const post=(u,b)=>j(u,{method:'POST',headers:H,body:JSON.stringify(b||{})});
 function md(el,t){el.innerHTML=marked.parse(t);el.querySelectorAll('pre').forEach(p=>{const b=document.createElement('button');b.className='cp';b.textContent='Copy';b.onclick=()=>{navigator.clipboard.writeText(p.innerText.replace(/Copy$/,''));b.textContent='Copied'};p.appendChild(b)})}
 function fmt(s){return /^(diff --git|@@ )/m.test(s)?s.split('\n').map(l=>`<i class="${l[0]=='+'&&!l.startsWith('+++')?'add':l[0]=='-'&&!l.startsWith('---')?'del':l.startsWith('@@')?'hunk':''}">${esc(l)||' '}</i>`).join(''):esc(s)}
@@ -157,7 +167,8 @@ async function savePrompt(){const s=$('#prompt-status');s.textContent='Saving…
 function drawT(){const q=($('#tq').value||'').toLowerCase(),L=TL.filter(t=>(t.name+t.desc).toLowerCase().includes(q));$('#tcount').textContent=`(${TL.filter(t=>t.enabled).length}/${TL.length} on)`;
 $('#tlist').innerHTML=L.map(t=>`<label class="row" title="${esc(t.desc)}">${ico(t.cat)}<b>${esc(t.name)}</b><input type="checkbox" style="width:auto;margin:0" ${t.enabled?'checked':''} onchange="togT('${t.name}',this.checked)"></label>`).join('')}
 async function togT(n,e){await post('/api/tools/toggle',{name:n,enabled:e});TL.find(t=>t.name===n).enabled=e;$('#tcount').textContent=`(${TL.filter(t=>t.enabled).length}/${TL.length} on)`}
-async function addP(){if(!$('#pmodel').value)return alert('Enter a model name');await post('/api/providers',{preset:$('#pre').value,key:$('#pkey').value,model:$('#pmodel').value,base_url:$('#purl').value});$('#pkey').value='';openSet();refresh()}
+async function testModel(){const s=$('#model-test-status'),b=$('#test-model');s.textContent='Testing…';b.disabled=true;try{const r=await post('/api/providers/test');s.textContent='Connected · '+r.model+' · '+r.reply;s.style.color='var(--add)'}catch(e){s.textContent='Failed: '+e.message;s.style.color='var(--del)'}finally{b.disabled=false}}
+async function addP(){if(!$('#pmodel').value)return alert('Enter a model name');try{await post('/api/providers',{preset:$('#pre').value,key:$('#pkey').value,model:$('#pmodel').value,base_url:$('#purl').value});$('#pkey').value='';openSet();refresh()}catch(e){alert(e.message)}}
 async function useP(i){await post(`/api/providers/${i}/activate`);openSet();refresh()}
 async function delP(i){await j('/api/providers/'+i,{method:'DELETE'});openSet();refresh()}
 async function addMcp(){let c;try{c=JSON.parse($('#mcfg').value)}catch{return alert('That is not valid JSON')}
