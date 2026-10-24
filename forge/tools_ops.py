@@ -174,7 +174,17 @@ def bg_list():
 
 # ===================== Render =====================
 @tool("render_owners", "List Render workspaces (owner ids).", {})
-def render_owners(): return "\n".join(f"{o['owner']['id']}  {o['owner']['name']}" for o in rd("GET", "/owners"))
+def render_owners():
+    data = rd("GET", "/owners")
+    rows = _as_api_list(data, "Render owners endpoint")
+    if isinstance(rows, str):
+        return rows
+    output = []
+    for item in rows:
+        owner = item.get("owner", item) if isinstance(item, dict) else {}
+        if isinstance(owner, dict) and owner.get("id"):
+            output.append(f"{owner['id']}  {owner.get('name', '(unnamed)')}")
+    return "\\n".join(output) or "Render returned no owners."
 
 @tool("render_service_info", "Details of a Render service: repo, branch, URL, auto-deploy, status.", {"service_id": ("string", "srv-...")})
 def render_service_info(service_id):
@@ -182,10 +192,19 @@ def render_service_info(service_id):
     return "\n".join(f"{k}: {v}" for k, v in {"name": s.get("name"), "type": s.get("type"), "repo": s.get("repo"), "branch": s.get("branch"), "url": d.get("url"), "autoDeploy": s.get("autoDeploy"), "suspended": s.get("suspended"), "plan": d.get("plan")}.items())
 
 @tool("render_env_vars", "List a service's environment variable NAMES (values hidden).", {"service_id": ("string", "")})
-def render_env_vars(service_id): return "\n".join((e.get("envVar", e)).get("key", "?") for e in rd("GET", f"/services/{service_id}/env-vars"))
-
-@tool("render_set_env", "Set an environment variable on a Render service.", {"service_id": ("string", ""), "key": ("string", ""), "value": ("string", "")})
-def render_set_env(service_id, key, value): return json.dumps(rd("PUT", f"/services/{service_id}/env-vars/{key}", json={"value": value}))[:200].replace(value, "***")
+def render_env_vars(service_id):
+    data = rd("GET", f"/services/{service_id}/env-vars")
+    rows = _as_api_list(data, "Render environment variables endpoint")
+    if isinstance(rows, str):
+        return rows
+    output = []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        env = item.get("envVar", item)
+        if isinstance(env, dict) and env.get("key"):
+            output.append(env["key"])
+    return "\\n".join(output) or "No environment variable names returned."
 
 def _act(service_id, verb): return json.dumps(rd("POST", f"/services/{service_id}/{verb}"))[:200]
 @tool("render_restart", "Restart a Render service.", {"service_id": ("string", "")})
@@ -197,12 +216,23 @@ def render_resume(service_id): return _act(service_id, "resume")
 
 @tool("render_wait_deploy", "Wait until the latest deploy finishes (live or failed). If it fails, read render_logs.", {"service_id": ("string", ""), "timeout?": ("integer", "seconds, default 300")})
 def render_wait_deploy(service_id, timeout=300):
-    end, st = time.time() + int(timeout), "?"
+    end, st = time.time() + max(1, int(timeout)), "unknown"
     while time.time() < end:
-        r = rd("GET", f"/services/{service_id}/deploys?limit=1")
-        st = r[0]["deploy"]["status"] if r else "none"
-        if st in ("live", "build_failed", "update_failed", "canceled", "deactivated"): break
-        time.sleep(10)
+        data = rd("GET", f"/services/{service_id}/deploys?limit=1")
+        rows = _as_api_list(data, "Render deploys endpoint")
+        if isinstance(rows, str):
+            return rows
+        if not rows:
+            st = "no deploys returned"
+            break
+        first = rows[0]
+        deploy = first.get("deploy", first) if isinstance(first, dict) else {}
+        if not isinstance(deploy, dict):
+            return "Render deploy response had an unexpected structure."
+        st = str(deploy.get("status", "unknown"))
+        if st in ("live", "build_failed", "update_failed", "canceled", "deactivated"):
+            break
+        time.sleep(min(10, max(1, end - time.time())))
     return f"deploy status: {st}" + (" — check render_logs" if "failed" in st else "")
 
 @tool("render_create_service", "Create a new Render web service from a GitHub repo URL (auto-deploys on push).", {"name": ("string", ""), "repo_url": ("string", "https://github.com/owner/repo"), "runtime": ("string", "python|node|docker|go|ruby|rust|static"), "build_command": ("string", ""), "start_command": ("string", ""), "branch?": ("string", ""), "plan?": ("string", "free|starter..."), "region?": ("string", "oregon|frankfurt|...")})
