@@ -16,7 +16,9 @@ import agent_runtime
 RISKY = {"run_command", "git", "github_create_pr", "render_deploy", "delete_file", "move_file", "bulk_replace", "python_eval", "node_eval", "pip_install", "npm_install", "http_request", "github_create_issue", "github_pr_comment", "apply_patch", "repo_commit_push", "publish_to_github", "github_create_repo", "github_put_file", "github_merge_pr", "bg_start", "preview_start", "render_set_env", "render_restart", "render_suspend", "render_resume", "render_create_service"}
 EDIT = {"write_file", "edit_file", "apply_patch", "append_file", "bulk_replace"}
 VERIFY = {"run_command", "run_tests", "lint", "python_eval", "node_eval", "check_url", "http_request"}
-DIS = Path("data/disabled.json")
+DATA_DIR = Path(os.getenv("FORGE_DATA_DIR", "data"))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DIS = DATA_DIR / "disabled.json"
 def disabled(): return set(json.loads(DIS.read_text())) if DIS.exists() else set()
 def schemas():
     # Stable, unique function names avoid malformed tool lists when an MCP server
