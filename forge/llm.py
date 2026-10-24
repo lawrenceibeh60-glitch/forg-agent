@@ -2,7 +2,7 @@
 import os, re, json, uuid, asyncio, httpx
 from pathlib import Path
 
-PF = Path("data/providers.json")
+PF = Path(os.getenv("FORGE_PROVIDERS_PATH", str(Path(os.getenv("FORGE_DATA_DIR", "data")) / "providers.json")) )
 PRESETS = {
     "openai": ("https://api.openai.com/v1", "openai"), "anthropic": ("https://api.anthropic.com", "anthropic"),
     "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "openai"),
