@@ -131,7 +131,7 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
 
     name = _sandbox_name(session)
     region = os.getenv("VERCEL_SANDBOX_REGION", "bom1").strip() or "bom1"
-    image = os.getenv("VERCEL_SANDBOX_IMAGE", "").strip() or None
+    image = os.getenv("VERCEL_SANDBOX_IMAGE", "").strip() or "vercel/sandbox/universal:latest"
     box = None
     try:
         try:
