@@ -320,7 +320,8 @@ def ipython_eval(code):
     python_payload = "import base64; exec(compile(base64.b64decode('" + encoded + "'), '<forge-ipython>', 'exec'))"
     quote = __import__("shlex").quote
     network_enabled = os.getenv("SANDBOX_NETWORK", "0") == "1"
-    install = ("python3 -m pip install --user --disable-pip-version-check ipython 2>&1 | tail -8; "
+    install = ("if ! command -v ipython >/dev/null 2>&1; then "
+               "python3 -m pip install --user --disable-pip-version-check ipython 2>&1 | tail -8; fi; "
                if network_enabled else "")
     command = (
         install
@@ -332,6 +333,25 @@ def ipython_eval(code):
         + "python3 -c " + quote(python_payload) + "; fi"
     )
     return run(command, ".", 180)
+
+@tool("linux_package_install", "Install Linux system packages inside the isolated Vercel Sandbox when its image supports apt, dnf, yum, or apk. Package names are validated; this never runs on the Forge host.", {"packages": ("string", "space-separated Linux package names")})
+def linux_package_install(packages):
+    names = str(packages or "").split()
+    if not names or len(names) > 30 or any(not re.fullmatch(r"[A-Za-z0-9.+:_-]{1,80}", n) for n in names):
+        return "Invalid package list. Use up to 30 simple package names separated by spaces."
+    args = " ".join(shlex.quote(n) for n in names)
+    command = (
+        "set -e; "
+        "if command -v apt-get >/dev/null 2>&1; then "
+        "if [ \"$(id -u)\" -eq 0 ]; then apt-get update && apt-get install -y " + args + "; "
+        "elif command -v sudo >/dev/null 2>&1; then sudo -n apt-get update && sudo -n apt-get install -y " + args + "; "
+        "else echo 'apt-get exists but this sandbox user has no root/sudo access'; exit 126; fi; "
+        "elif command -v dnf >/dev/null 2>&1; then dnf install -y " + args + "; "
+        "elif command -v yum >/dev/null 2>&1; then yum install -y " + args + "; "
+        "elif command -v apk >/dev/null 2>&1; then apk add " + args + "; "
+        "else echo 'No supported Linux package manager (apt-get, dnf, yum, apk) found in this sandbox image'; exit 127; fi"
+    )
+    return run(command, ".", 300)
 
 @tool("sandbox_runtime_info", "Inspect Linux distribution, Python, Node, package managers, IPython, and sandbox network configuration.", {})
 def sandbox_runtime_info():
