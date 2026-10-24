@@ -143,7 +143,7 @@ async def _start(session: str, root: Path, project: Path, start_command: str,
             box = await sandbox.create_sandbox(
                 name=name, image=image, ports=[port],
                 execution_time_limit=MAX_PREVIEW_SECONDS, persistent=True,
-                network_policy=NetworkPolicy.allow_all(), region=region,
+                network_policy=NetworkPolicy.allow_all(),
                 tags={"app": "forge-agent", "purpose": "live-preview"},
             )
         staged_count, staged_bytes = await _write_workspace(box, project)
