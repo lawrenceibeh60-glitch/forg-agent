@@ -7,7 +7,7 @@ import preview_runtime
 
 @tools.tool(
     "preview_start",
-    "Build and run a website or web app in a disposable isolated Render sandbox, then return a public HTTPS preview link. Automatically detects static HTML, React/Vite, Flask, and FastAPI/Uvicorn projects. Use after creating or editing a runnable web project. You may supply a custom start command, port, or install command when auto-detection is insufficient. Preview links are public to anyone who has them and expire when the sandbox stops.",
+    "Build and run a website or web app in a disposable isolated Vercel Linux Sandbox, then return a public HTTPS preview link. Automatically detects static HTML, React/Vite, Flask, and FastAPI/Uvicorn projects. Use after creating or editing a runnable web project. You may supply a custom start command, port, or install command when auto-detection is insufficient. Preview links are public to anyone who has them and expire when the sandbox stops.",
     {
         "path?": ("string", "Project directory relative to the current chat workspace; default ."),
         "command?": ("string", "Optional explicit server start command; must bind to 0.0.0.0 and the selected port."),
