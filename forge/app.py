@@ -162,13 +162,57 @@ def session_path(sid):
     return SD / (sid + ".json")
 
 
+def _repair_pending_tool_calls(messages):
+    """Close an interrupted final tool-call batch with explicit unknown-result records."""
+    if not isinstance(messages, list):
+        return messages, False
+    assistant_calls = [
+        (index, item) for index, item in enumerate(messages)
+        if isinstance(item, dict) and item.get("role") == "assistant" and item.get("tool_calls")
+    ]
+    if not assistant_calls:
+        return messages, False
+    index, assistant = assistant_calls[-1]
+    if any(isinstance(item, dict) and item.get("role") == "assistant" for item in messages[index + 1:]):
+        return messages, False
+    expected = {
+        call.get("id") for call in assistant.get("tool_calls", [])
+        if isinstance(call, dict) and call.get("id")
+    }
+    returned = {
+        item.get("tool_call_id") for item in messages[index + 1:]
+        if isinstance(item, dict) and item.get("role") == "tool" and item.get("tool_call_id")
+    }
+    missing = sorted(expected - returned)
+    if not missing:
+        return messages, False
+    for call_id in missing:
+        messages.append({
+            "role": "tool",
+            "tool_call_id": call_id,
+            "content": (
+                "INTERRUPTED BEFORE RESULT WAS PERSISTED. The action's outcome is unknown. "
+                "Inspect current files and external state before deciding whether any action needs retrying. "
+                "Do not assume it succeeded or failed."
+            ),
+        })
+    return messages, True
+
+
 def load(sid):
     # Prefer shared durable storage so requests can land on different instances.
     saved = tasks.load_session(sid)
     if saved is not None:
+        saved, repaired = _repair_pending_tool_calls(saved)
+        if repaired:
+            save(sid, saved)
         return saved
     f = session_path(sid)
-    return json.loads(f.read_text()) if f.exists() else [{"role": "system", "content": system()}]
+    messages = json.loads(f.read_text()) if f.exists() else [{"role": "system", "content": system()}]
+    messages, repaired = _repair_pending_tool_calls(messages)
+    if repaired:
+        save(sid, messages)
+    return messages
 
 
 def save(sid, msgs):
@@ -348,6 +392,9 @@ async def chat(req: Req):
                     if kind == "text": turn_text.append(val)
                     else: m = val
                 msgs.append({k: v for k, v in m.items() if v is not None})
+                # Persist the model's decision before executing side effects. If the
+                # request is killed mid-tool, load() repairs any missing tool results.
+                save(sid, msgs)
                 calls = m.get("tool_calls") or []
                 if not calls:
                     if edited and not verified and verification_prompts < 3 and not verification_blocked:
@@ -377,9 +424,11 @@ async def chat(req: Req):
                         if msgs and msgs[-1].get("role") == "assistant" and isinstance(msgs[-1].get("content"), str):
                             msgs[-1]["content"] += addition
                         yield sse("delta", {"text": addition})
+                    save(sid, msgs)
                     tasks.update(task_id, status="completed", current_step="Final answer delivered", checkpoint={"phase": "completed", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs), "verified": bool(verified), "downloadable_files": changed_files})
                     break
                 tasks.update(task_id, current_step=f"Processing {len(calls)} tool call(s)", checkpoint={"phase": "tool_execution", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs)})
+                recovery_notes = []
                 for c in calls:
                     name, raw = c["function"]["name"], c["function"]["arguments"]
                     try: args = json.loads(raw or "{}")
@@ -445,12 +494,13 @@ async def chat(req: Req):
                     yield sse("tool_result", {"id": c["id"], "output": str(out)[:4000]})
                     yield sse("progress", {"text": f"Received result from {name}; evaluating the result and next step."})
                     msgs.append({"role": "tool", "tool_call_id": c["id"], "content": str(out)[:12000]})
+                    # Persist after each result. If another call in this batch has not
+                    # finished, load() adds a synthetic unknown-result record on resume.
+                    save(sid, msgs)
                     if failed_result and not prior_failure:
-                        # Preserve valid assistant-tool/tool-result ordering before adding guidance.
-                        # Recovery changes strategy without bypassing approval or sandbox policy.
-                        msgs.append({"role": "user", "content": agent_runtime.recovery_instruction(
+                        recovery_notes.append(agent_runtime.recovery_instruction(
                             failure_class, name, str(out)
-                        )})
+                        ))
                     if name == "update_plan" and isinstance(args.get("steps"), str):
                         prior_task = tasks.get(task_id) or {}
                         plan_items = orchestrator.normalize_plan(args["steps"], prior_task.get("plan", []))
@@ -469,6 +519,14 @@ async def chat(req: Req):
                     if name != "update_plan":
                         checkpoint_fields["current_step"] = f"Reviewed result from {name}"
                     tasks.update(task_id, **checkpoint_fields)
+                if recovery_notes:
+                    msgs.append({
+                        "role": "user",
+                        "content": "[Adaptive recovery guidance — after all tool results]\n"
+                            + "\n\n".join(recovery_notes)[:6000]
+                            + "\nApply the relevant policy, then continue useful work without repeating an unchanged failed action."
+                    })
+                    save(sid, msgs)
                 if repeated_failure_blocked and not repeated_failure_notified:
                     # Stop repeating the failing action, but keep the overall agent task alive.
                     msgs.append({"role": "user", "content":
