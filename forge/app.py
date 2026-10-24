@@ -206,11 +206,13 @@ async def chat(req: Req):
                     if name in VERIFY: verified = True
                     ok = True
                     if (name.startswith("mcp__") and not req.auto) or ((name in RISKY) and not req.auto and not explicitly_authorized(req.message, name)):
+                        tasks.update(task_id, status="waiting_approval", current_step=f"Waiting for approval: {name}", checkpoint={"phase": "approval", "tool": name, "turn": turn})
                         fut = asyncio.get_running_loop().create_future(); PENDING[c["id"]] = fut
                         yield sse("approval", {"id": c["id"], "name": name})
                         try: ok = await asyncio.wait_for(fut, 300)
                         except asyncio.TimeoutError: ok = False
                         PENDING.pop(c["id"], None)
+                        tasks.update(task_id, status="running", current_step=f"Approval resolved: {name}", checkpoint={"phase": "tool_execution", "tool": name, "approved": bool(ok), "turn": turn})
                     try:
                         if not ok:
                             out = "Action was denied by the user. Do not retry the same action unless the user changes their decision."
@@ -244,6 +246,8 @@ async def chat(req: Req):
                     msgs.append({"role": "assistant", "content": final_message})
             except Exception:
                 pass
+            task_status = "blocked"
+            tasks.update(task_id, status="blocked", current_step="Agent iteration budget reached", last_error="The configured turn budget was exhausted; resume the task to continue.", checkpoint={"phase": "budget_exhausted", "turn": turn, "message_count": len(msgs), "tool_calls": sum(1 for m in msgs if m.get("role") == "tool")})
         save(sid, msgs)
         if task_status == "completed":
             tasks.update(task_id, status="completed", current_step="Conversation saved", checkpoint={"phase": "saved", "message_count": len(msgs), "turn": locals().get("turn", 0), "tool_calls": sum(1 for m in msgs if m.get("role") == "tool")})
