@@ -51,6 +51,18 @@ class TaskCheckpointTests(unittest.TestCase):
         )
         self.assertEqual(tasks.latest_for_session("session-a")["id"], second["id"])
 
+    def test_recover_interrupted_tasks_marks_them_resumable(self):
+        active = tasks.create("session-restart", "Continue after restart")
+        waiting = tasks.create("session-restart", "Waiting for approval")
+        tasks.update(waiting["id"], status="waiting_approval")
+        recovered = tasks.recover_interrupted()
+        self.assertEqual(recovered, 2)
+        for task_id in (active["id"], waiting["id"]):
+            loaded = tasks.get(task_id)
+            self.assertEqual(loaded["status"], "blocked")
+            self.assertEqual(loaded["checkpoint"]["phase"], "interrupted")
+            self.assertIn("restarted", loaded["last_error"])
+
     def test_health_reports_sqlite_backend(self):
         health = tasks.health()
         self.assertTrue(health["ok"])
