@@ -16,16 +16,25 @@ PRESETS = {
 }
 
 def load():
-    if PF.exists(): return json.loads(PF.read_text())
-    d = {"active": None, "providers": []}
-    # Prefer the current xKiro variable names; retain legacy KIRO_* compatibility.
+    # Environment configuration must remain effective even when a previous UI
+    # session created providers.json. Never overwrite a user-configured xKiro
+    # provider, but seed/update it from deployment env when missing.
+    d = json.loads(PF.read_text()) if PF.exists() else {"active": None, "providers": []}
+    if not isinstance(d, dict):
+        d = {"active": None, "providers": []}
+    d.setdefault("providers", [])
     xkiro_key = os.getenv("XKIRO_API_KEY") or os.getenv("KIRO_API_KEY")
     if xkiro_key:
-        d["providers"].append({"id": "xkiro", "name": "xKiro",
-                               "base_url": os.getenv("XKIRO_BASE_URL") or os.getenv("KIRO_BASE_URL") or "https://api.xkiro.com/v1",
-                               "kind": "openai", "key": xkiro_key,
-                               "model": os.getenv("XKIRO_MODEL") or os.getenv("KIRO_MODEL") or "mistralai/devstral-medium"})
-        d["active"] = "xkiro"
+        p = next((p for p in d["providers"] if p.get("id") == "xkiro"), None)
+        if p is None:
+            p = {"id": "xkiro", "name": "xKiro", "kind": "openai"}
+            d["providers"].insert(0, p)
+        # Deployment environment is authoritative for the managed xKiro entry.
+        p.update({"name": "xKiro", "base_url": os.getenv("XKIRO_BASE_URL") or os.getenv("KIRO_BASE_URL") or "https://api.xkiro.com/v1",
+                  "kind": "openai", "key": xkiro_key,
+                  "model": os.getenv("XKIRO_MODEL") or os.getenv("KIRO_MODEL") or "mistralai/devstral-medium"})
+        if not d.get("active") or not any(x.get("id") == d["active"] for x in d["providers"]):
+            d["active"] = "xkiro"
     return d
 
 def save(d): PF.parent.mkdir(exist_ok=True); PF.write_text(json.dumps(d, indent=1))
