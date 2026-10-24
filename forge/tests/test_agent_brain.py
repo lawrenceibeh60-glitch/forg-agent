@@ -6,4 +6,4 @@ def test_backend_brain_profile_defines_coordinated_specialist_heads():
     for role in ("ROUTER HEAD", "PLANNER HEAD", "ANALYST HEAD", "EXECUTOR HEAD", "VERIFIER HEAD", "CRITIC HEAD"):
         assert role in prompt
     assert "missing runner" not in prompt.lower()
-    assert "do not repeat the same command" in prompt.lower()
+    assert "never repeat an identical failing action" in prompt.lower()
