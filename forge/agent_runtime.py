@@ -76,7 +76,7 @@ ALIASES = {
     "command": "run_command sandbox_runtime_info bg_start bg_logs bg_stop bg_list",
     "package": "linux_package_install pip_install npm_install run_command sandbox_runtime_info",
     "background": "bg_start bg_logs bg_stop bg_list run_command",
-    "preview": "preview_start preview_stop sandbox_runtime_info run_command bg_logs"
+    "preview": "preview_start preview_stop sandbox_runtime_info run_command bg_logs",
     "mcp": "mcp",
     "plugin": "mcp",
     "browser": "web_search web_fetch check_url extract_links",
