@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: forg-agent
+    runtime: python
+    plan: free
+    rootDir: forge
+    buildCommand: python -m pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6
+      - key: XKIRO_API_KEY
+        sync: false
+      - key: XKIRO_BASE_URL
+        value: https://api.xkiro.com/v1
+      - key: XKIRO_MODEL
+        value: mistralai/devstral-medium
+      - key: APP_PASSWORD
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: RENDER_API_KEY
+        sync: false
+      - key: ALLOW_SHELL
+        value: "1"
+      - key: WORKSPACE
+        value: workspace
