@@ -418,11 +418,6 @@ async def chat(req: Req):
                     failed_result = agent_runtime.action_failed(str(out)) or agent_runtime.sandbox_blocker(str(out))
                     if failed_result and not prior_failure:
                         action_failures[action_key] = str(out)[:1500]
-                        # Feed a compact, deterministic recovery policy into the next model cycle.
-                        # This changes the recovery strategy without bypassing approval or sandbox policy.
-                        msgs.append({"role": "user", "content": agent_runtime.recovery_instruction(
-                            failure_class, name, str(out)
-                        )})
                     if name in execution_tools and agent_runtime.sandbox_blocker(str(out)):
                         sandbox_failure_count += 1
                         sandbox_blocked = True
@@ -436,6 +431,12 @@ async def chat(req: Req):
                     yield sse("tool_result", {"id": c["id"], "output": str(out)[:4000]})
                     yield sse("progress", {"text": f"Received result from {name}; evaluating the result and next step."})
                     msgs.append({"role": "tool", "tool_call_id": c["id"], "content": str(out)[:12000]})
+                    if failed_result and not prior_failure:
+                        # Preserve valid assistant-tool/tool-result ordering before adding guidance.
+                        # Recovery changes strategy without bypassing approval or sandbox policy.
+                        msgs.append({"role": "user", "content": agent_runtime.recovery_instruction(
+                            failure_class, name, str(out)
+                        )})
                     if name == "update_plan" and isinstance(args.get("steps"), str):
                         prior_task = tasks.get(task_id) or {}
                         plan_items = orchestrator.normalize_plan(args["steps"], prior_task.get("plan", []))
