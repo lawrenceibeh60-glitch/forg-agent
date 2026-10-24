@@ -165,3 +165,17 @@ def test_task_resume_rejects_completed_tasks(monkeypatch):
     monkeypatch.setattr(app.tasks, "get", lambda task_id: original)
     response = asyncio.run(app.task_resume(original["id"], app.ResumeReq()))
     assert response.status_code == 409
+
+
+def test_chat_rejects_task_resume_from_another_session_before_loading_history(monkeypatch):
+    monkeypatch.setattr(app.tasks, "get", lambda task_id: {
+        "id": task_id, "session_id": "owner-session", "status": "blocked"
+    })
+    monkeypatch.setattr(app, "load", lambda sid: (_ for _ in ()).throw(AssertionError("history must not be loaded")))
+    response = asyncio.run(app.chat(app.Req(
+        session="different-session",
+        message="continue this task",
+        task_id="task-owned-by-another-session",
+    )))
+    assert response.status_code == 404
+    assert response.body == b'{"error":"task not found for this session"}'
