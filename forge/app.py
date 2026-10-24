@@ -314,6 +314,23 @@ def files(sid: str = ""):
 def sandbox_zip(sid: str):
     r = tools.use(sid); return FileResponse(shutil.make_archive(f"/tmp/forge-{r.name}", "zip", r), filename="sandbox.zip")
 
+@app.get("/api/sandbox/preview")
+def sandbox_preview(sid: str, path: str = "index.html"):
+    """Serve only workspace HTML in a browser sandbox, never as same-origin app content."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid or ""):
+        return JSONResponse({"error": "invalid session"}, status_code=400)
+    root = tools.use(sid).resolve()
+    target = (root / path).resolve()
+    if root not in target.parents or not target.is_file():
+        return JSONResponse({"error": "file not found in this sandbox"}, status_code=404)
+    if target.suffix.lower() not in {".html", ".htm"}:
+        return JSONResponse({"error": "preview is limited to HTML files"}, status_code=415)
+    return FileResponse(target, media_type="text/html", headers={
+        "Content-Security-Policy": "sandbox allow-scripts; default-src 'self' data: blob:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none'",
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store",
+    })
+
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
