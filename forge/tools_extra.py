@@ -314,22 +314,28 @@ def lint(cwd="."):
 @tool("python_eval", "Run a Python snippet for quick computation/experiments in the configured isolated sandbox.", {"code": ("string", "")})
 def python_eval(code): return run("python3 -c " + __import__("shlex").quote(code), ".", 60)
 
-@tool("ipython_eval", "Run a Python snippet in IPython inside the isolated sandbox when available; otherwise clearly report and use standard Python.", {"code": ("string", "Python snippet")})
+@tool("ipython_eval", "Run a Python snippet in IPython inside the persistent Vercel Linux sandbox, installing IPython on demand when sandbox networking is enabled; otherwise clearly fall back to standard Python.", {"code": ("string", "Python snippet")})
 def ipython_eval(code):
     encoded = base64.b64encode(code.encode("utf-8")).decode("ascii")
     python_payload = "import base64; exec(compile(base64.b64decode('" + encoded + "'), '<forge-ipython>', 'exec'))"
     quote = __import__("shlex").quote
+    network_enabled = os.getenv("SANDBOX_NETWORK", "0") == "1"
+    install = ("python3 -m pip install --user --disable-pip-version-check ipython 2>&1 | tail -8; "
+               if network_enabled else "")
     command = (
-        "if command -v ipython >/dev/null 2>&1; then "
+        install
+        + "if command -v ipython >/dev/null 2>&1; then "
         + "ipython -c " + quote(python_payload) + "; "
-        + "else printf '%s\\n' 'IPython is not installed in this sandbox image; executing the snippet with standard Python instead.'; "
+        + "elif python3 -c 'import IPython' >/dev/null 2>&1; then "
+        + "python3 -m IPython -c " + quote(python_payload) + "; "
+        + "else printf '%s\\n' 'IPython is not installed. Enable SANDBOX_NETWORK=1 to let the isolated sandbox install it.'; "
         + "python3 -c " + quote(python_payload) + "; fi"
     )
-    return run(command, ".", 120)
+    return run(command, ".", 180)
 
-@tool("sandbox_runtime_info", "Inspect the isolated sandbox OS, Python version, and whether IPython is installed.", {})
+@tool("sandbox_runtime_info", "Inspect Linux distribution, Python, Node, package managers, IPython, and sandbox network configuration.", {})
 def sandbox_runtime_info():
-    command = "cat /etc/os-release 2>/dev/null | head -5; python3 --version; if command -v ipython >/dev/null 2>&1; then ipython --version; elif python3 -c 'import IPython' >/dev/null 2>&1; then python3 -c 'import IPython; print(IPython.__version__)'; else echo 'IPython: not installed'; fi"
+    command = "echo '--- Linux distribution ---'; cat /etc/os-release 2>/dev/null | head -8; echo '--- runtimes ---'; python3 --version 2>&1; node --version 2>&1 || true; npm --version 2>&1 || true; git --version 2>&1 || true; echo '--- IPython ---'; if command -v ipython >/dev/null 2>&1; then ipython --version; elif python3 -c 'import IPython' >/dev/null 2>&1; then python3 -c 'import IPython; print(IPython.__version__)'; else echo 'IPython: not installed'; fi; echo '--- package managers ---'; command -v pip || true; command -v uv || true; command -v apt-get || true; echo 'network policy is controlled by SANDBOX_NETWORK on Forge host'"
     return run(command, ".", 30)
 
 @tool("node_eval", "Run a JavaScript snippet with Node inside the configured isolated sandbox; refuses host execution by default.", {"code": ("string", "")})
