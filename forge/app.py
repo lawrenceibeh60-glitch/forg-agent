@@ -272,7 +272,7 @@ async def chat(req: Req):
             repeated_failure_blocked = False
             repeated_failure_reason = ""
             execution_tools = {"run_command", "run_tests", "lint", "python_eval", "node_eval"}
-            max_turns = max(40, min(80, int(os.getenv("FORGE_MAX_AGENT_TURNS", "60"))))
+            max_turns = max(60, min(160, int(os.getenv("FORGE_MAX_AGENT_TURNS", "120"))))
             for turn in range(1, max_turns + 1):
                 tasks.update(task_id, current_step=f"Reasoning cycle {turn}", checkpoint={"phase": "reasoning", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs)})
                 yield sse("progress", {"text": f"Working through the task · reasoning cycle {turn}", "turn": turn, "task_id": task_id})
@@ -431,31 +431,17 @@ async def chat(req: Req):
                             failed_action_count=len(action_failures), next_action="Use independent diagnosis or fix the recorded precondition"))
                     break
                 if sandbox_blocked:
-                    # Stop the agent loop after a confirmed sandbox infrastructure blocker.
+                    # Disable only command execution, not the whole task. The model can
+                    # still inspect/edit files, reason about the failure, use GitHub tools,
+                    # write tests, and prepare a useful partial deliverable.
+                    yield sse("progress", {"text": "Command execution is unavailable; continuing with independent work and static verification."})
                     msgs.append({"role": "user", "content":
-                        "[SANDBOX CIRCUIT BREAKER OPEN] Command execution is blocked for this task. "
-                        "Do not call any command, shell, test-runner, interpreter, Docker, or sandbox tool again. "
-                        "Use only static inspection or existing evidence. Explain the exact blocker and the one configuration/access fix needed. "
-                        "Do not claim tests passed.\nConfirmed blocker: " + sandbox_block_reason[:1000]})
-                    final_text = ""
-                    try:
-                        async for kind, value in llm.stream(msgs, [], purpose="review"):
-                            if kind == "text":
-                                final_text += value
-                                yield sse("delta", {"text": value})
-                        if final_text:
-                            msgs.append({"role": "assistant", "content": final_text})
-                    except Exception:
-                        final_text = "Command execution is blocked by sandbox configuration. I stopped retrying to avoid wasting tokens. Blocker: " + sandbox_block_reason[:700]
-                        yield sse("delta", {"text": final_text})
-                        msgs.append({"role": "assistant", "content": final_text})
-                    task_status = "blocked"
-                    tasks.update(task_id, status="blocked", current_step="Execution stopped by sandbox circuit breaker",
-                        last_error=sandbox_block_reason[:12000],
-                        checkpoint=orchestrator.checkpoint("sandbox_circuit_open", turn=locals().get("turn", 0),
-                            reason=sandbox_block_reason[:1000], failures=sandbox_failure_count, message_count=len(msgs),
-                            next_action="Fix sandbox configuration/access, then start or resume a task"))
-                    break
+                        "[COMMAND EXECUTION UNAVAILABLE — CONTINUE THE TASK] A command tool returned a confirmed sandbox infrastructure/configuration error. "
+                        "Do not call command, shell, test-runner, interpreter, Docker, or sandbox tools again in this task. "
+                        "This restriction applies only to execution tools; continue useful independent work with file inspection/editing, source review, documentation, GitHub operations, and other available tools. "
+                        "If an outcome depends on executing code, prepare it as far as possible, perform static checks, preserve a checkpoint, and identify the unresolved verification step. "
+                        "Do not declare the whole task blocked while useful independent work remains. Do not claim tests passed.\nConfirmed execution blocker: " + sandbox_block_reason[:1000]})
+                    # Continue the loop: the next model cycle can complete non-execution work.
         except asyncio.CancelledError:
             task_status = "blocked"
             tasks.update(task_id, status="blocked", last_error="The streaming request was interrupted; resume from the saved checkpoint.", current_step="Connection interrupted; checkpoint saved", checkpoint={"phase": "client_cancelled", "message_count": len(msgs), "turn": locals().get("turn", 0)})
@@ -478,8 +464,8 @@ async def chat(req: Req):
                     msgs.append({"role": "assistant", "content": final_message})
             except Exception:
                 pass
-            task_status = "blocked"
-            tasks.update(task_id, status="blocked", current_step="Agent iteration budget reached", last_error="The configured turn budget was exhausted; resume the task to continue.", checkpoint={"phase": "budget_exhausted", "turn": turn, "message_count": len(msgs), "tool_calls": sum(1 for m in msgs if m.get("role") == "tool")})
+            task_status = "paused"
+            tasks.update(task_id, status="paused", current_step="Checkpoint saved; more work remains", last_error="The current execution window ended before completion. Resume from this checkpoint to continue.", checkpoint={"phase": "budget_exhausted", "turn": turn, "message_count": len(msgs), "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "resume_recommended": True})
         save(sid, msgs)
         if task_status == "completed":
             tasks.update(task_id, status="completed", current_step="Conversation saved", checkpoint={"phase": "saved", "message_count": len(msgs), "turn": locals().get("turn", 0), "tool_calls": sum(1 for m in msgs if m.get("role") == "tool")})
