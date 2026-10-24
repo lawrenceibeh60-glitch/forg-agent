@@ -52,11 +52,20 @@ def _validate(name, steps):
                         "action":step["action"],"args":{"query":query,"limit":limit}})
     return name,cleaned
 
-def save(session_id,name,steps):
-    _sid(session_id); name,steps=_validate(name,steps); now=time.time(); wid=uuid.uuid4().hex
+def save(session_id,name,steps,workflow_id=None):
+    _sid(session_id); name,steps=_validate(name,steps); now=time.time()
+    wid=str(workflow_id or uuid.uuid4().hex)
     with _LOCK,_db() as db:
-        db.execute("INSERT INTO forge_workflows(id,session_id,name,steps_json,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-                   (wid,session_id,name,json.dumps(steps),now,now)); db.commit()
+        if workflow_id:
+            cur=db.execute("UPDATE forge_workflows SET name=?,steps_json=?,updated_at=? WHERE id=? AND session_id=?",
+                           (name,json.dumps(steps),now,wid,session_id))
+            if not cur.rowcount:
+                db.commit()
+                raise ValueError("workflow not found in this session")
+        else:
+            db.execute("INSERT INTO forge_workflows(id,session_id,name,steps_json,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+                       (wid,session_id,name,json.dumps(steps),now,now))
+        db.commit()
     return get(session_id,wid)
 
 def list_for_session(session_id):
