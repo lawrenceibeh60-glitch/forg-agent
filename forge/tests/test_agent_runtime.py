@@ -133,3 +133,24 @@ def test_natural_language_sandbox_requests_route_to_execution_tools():
     names = {x["function"]["name"] for x in selected}
     assert {"sandbox_runtime_info", "run_command", "linux_package_install", "preview_start"} <= names
     assert "delete_file" not in names
+
+
+
+def test_agent_turn_budget_defaults_to_ten_thousand(monkeypatch):
+    monkeypatch.delenv("FORGE_MAX_AGENT_TURNS", raising=False)
+    assert app._max_agent_turns() == 10000
+
+
+def test_agent_turn_budget_accepts_large_configured_value(monkeypatch):
+    monkeypatch.setenv("FORGE_MAX_AGENT_TURNS", "9000")
+    assert app._max_agent_turns() == 9000
+
+
+def test_agent_turn_budget_caps_unbounded_value(monkeypatch):
+    monkeypatch.setenv("FORGE_MAX_AGENT_TURNS", "999999999")
+    assert app._max_agent_turns() == 10000
+
+
+def test_agent_turn_budget_handles_invalid_value(monkeypatch):
+    monkeypatch.setenv("FORGE_MAX_AGENT_TURNS", "not-a-number")
+    assert app._max_agent_turns() == 10000
