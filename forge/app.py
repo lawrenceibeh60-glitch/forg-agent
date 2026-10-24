@@ -68,7 +68,12 @@ async def compact(msgs):
     if sum(len(str(m.get("content") or "")) for m in msgs) < 80000: return
     last = max(i for i, m in enumerate(msgs) if m["role"] == "user")
     old = msgs[1:last]
-    txt = "\n".join(f"{m['role']}: {str(m.get('content') or m.get('tool_calls'))[:800]}" for m in old)
+    def summary_content(m):
+        value = m.get("content") or m.get("tool_calls")
+        if isinstance(value, list):
+            return " ".join((part.get("text", "") if part.get("type") == "text" else "[image reference attached]") for part in value)
+        return str(value)
+    txt = "\n".join(f"{m['role']}: {summary_content(m)[:1200]}" for m in old)
     if last <= 2 or len(txt) < 8000: return
     s = ""
     async for k, v in llm.stream([{"role": "system", "content": "Create a compact continuity summary for the next turn. Preserve: original user goal; latest corrections; every important user answer to an assistant question; pending question/answer pairs; what references like it/that/the second option point to; confirmed facts vs assumptions; user constraints/preferences; decisions made; files/actions/tests completed; failures and attempted alternatives; unresolved work and the next step. Keep exact names/values needed to continue without asking the user to repeat them. Do not invent details. Dense but unambiguous."},
