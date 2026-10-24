@@ -66,6 +66,15 @@ app = FastAPI(lifespan=life)
 
 CUSTOM_PROMPT = Path("data/custom_prompt.txt")
 
+def _max_agent_turns() -> int:
+    """Large but bounded per-request reasoning budget; configurable for deployment."""
+    try:
+        configured = int(os.getenv("FORGE_MAX_AGENT_TURNS", "10000"))
+    except (TypeError, ValueError):
+        configured = 10000
+    return max(120, min(10000, configured))
+
+
 def system():
     m, n = tools.memory(), tools.project_notes()
     custom = CUSTOM_PROMPT.read_text()[:12000].strip() if CUSTOM_PROMPT.exists() else ""
@@ -274,7 +283,7 @@ async def chat(req: Req):
             repeated_failure_reason = ""
             repeated_failure_notified = False
             execution_tools = {"run_command", "run_tests", "lint", "python_eval", "node_eval"}
-            max_turns = max(60, min(160, int(os.getenv("FORGE_MAX_AGENT_TURNS", "120"))))
+            max_turns = _max_agent_turns()
             for turn in range(1, max_turns + 1):
                 tasks.update(task_id, current_step=f"Reasoning cycle {turn}", checkpoint={"phase": "reasoning", "turn": turn, "tool_calls": sum(1 for m in msgs if m.get("role") == "tool"), "message_count": len(msgs)})
                 yield sse("progress", {"text": f"Working through the task · reasoning cycle {turn}", "turn": turn, "task_id": task_id})
