@@ -11,9 +11,9 @@ STORE = Path(os.getenv("FORGE_CONNECTIONS_PATH", str(Path(os.getenv("FORGE_DATA_
 
 
 def _fernet():
-    secret = os.getenv("OAUTH_ENCRYPTION_SECRET") or os.getenv("APP_PASSWORD")
+    secret = os.getenv("OAUTH_ENCRYPTION_SECRET")
     if not secret:
-        raise RuntimeError("Set OAUTH_ENCRYPTION_SECRET (or APP_PASSWORD) to encrypt connected-account tokens.")
+        raise RuntimeError("Set OAUTH_ENCRYPTION_SECRET to encrypt connected-account tokens.")
     key = base64.urlsafe_b64encode(hashlib.sha256(("forge-oauth-v1:" + secret).encode()).digest())
     return Fernet(key)
 
