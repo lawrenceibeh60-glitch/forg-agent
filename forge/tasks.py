@@ -133,6 +133,31 @@ def list_recent(limit=30):
     return [_decode(row) for row in rows]
 
 
+def recover_interrupted():
+    """Mark tasks left active by a crashed/restarted process as resumable blockers."""
+    now = time.time()
+    recovered = 0
+    with _LOCK, _database() as db:
+        rows = db.execute(
+            "SELECT id, status, checkpoint_json FROM tasks WHERE status IN ('running', 'waiting_approval')"
+        ).fetchall()
+        for row in rows:
+            try:
+                checkpoint = json.loads(row["checkpoint_json"] or "{}")
+            except (TypeError, ValueError):
+                checkpoint = {}
+            checkpoint.update({"phase": "interrupted", "previous_status": row["status"],
+                               "recovered_at": now})
+            db.execute(
+                "UPDATE tasks SET status='blocked', current_step=?, last_error=?, checkpoint_json=?, updated_at=? WHERE id=?",
+                ("Process restarted; checkpoint is resumable.",
+                 "The agent process restarted before this task reached a final state.",
+                 json.dumps(checkpoint, ensure_ascii=False), now, row["id"]),
+            )
+            recovered += 1
+    return recovered
+
+
 def health():
     persistent_hint = str(_DB.resolve())
     try:
