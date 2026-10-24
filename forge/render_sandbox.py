@@ -32,7 +32,7 @@ def status():
     else: reason = "Configured; workspace access is verified only when a sandbox operation succeeds."
     return {"enabled": enabled, "configured": configured(), "sdk_installed": sdk,
             "ready": ready, "reason": reason,
-            "network": "enabled" if os.getenv("SANDBOX_NETWORK", "0") == "1" else "disabled"}
+            "network": "enabled" if os.getenv("SANDBOX_NETWORK", "0") == "1" else "disabled",\n            "snapshot_configured": bool(os.getenv("SANDBOX_SNAPSHOT_NAME", "").strip())}
 
 
 def _stage(source: Path, target: Path):
@@ -104,7 +104,13 @@ def run(command: str, cwd: Path, timeout: int = 120) -> str:
             if os.getenv("SANDBOX_NETWORK", "0") == "1":
                 network_policy = "allow-all"
             api = client.experimental.sandboxes
-            sandbox = api.create(timeout_seconds=max(60, timeout + 30), network_policy=network_policy)
+            create_args = {"timeout_seconds": max(60, timeout + 30), "network_policy": network_policy}
+            # A named snapshot can preinstall tools such as IPython while the
+            # live sandbox still starts with a deny-all network policy.
+            snapshot_name = os.getenv("SANDBOX_SNAPSHOT_NAME", "").strip()
+            if snapshot_name:
+                create_args["snapshot_name"] = snapshot_name
+            sandbox = api.create(**create_args)
             deadline = time.monotonic() + min(90, int(os.getenv("SANDBOX_START_TIMEOUT", "60")))
             while getattr(sandbox, "status", "") != "running":
                 if getattr(sandbox, "status", "") in {"failed", "errored", "terminated", "suspended"}:
