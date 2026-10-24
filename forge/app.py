@@ -181,6 +181,9 @@ class Req(BaseModel):
     message: str
     auto: bool = False
     images: list[str] = []
+    # Internal continuation hook: resume the existing persisted task instead of
+    # creating a second task that leaves the original stuck in "blocked".
+    task_id: str | None = None
 
 class Appr(BaseModel):
     id: str
@@ -234,13 +237,34 @@ async def chat(req: Req):
             parts.append({"type": "image_url", "image_url": {"url": image_data}})
         user_content = parts
     msgs.append({"role": "user", "content": user_content})
-    task = tasks.create(sid, req.message)
-    task_id = task["id"]
-    initial_plan = orchestrator.seed_plan(req.message)
-    tasks.update(task_id, plan=initial_plan, current_step=initial_plan[0]["label"],
-                 checkpoint=orchestrator.checkpoint("starting", turn=0, tool_calls=0,
-                                                    images_attached=len(req.images),
-                                                    orchestration_version=1))
+    if req.task_id:
+        task = tasks.get(req.task_id)
+        if not task or task.get("session_id") != sid:
+            return JSONResponse({"error": "task not found for this session"}, status_code=404)
+        if task.get("status") in {"completed", "cancelled"}:
+            return JSONResponse({"error": f"Task is {task['status']} and cannot be resumed."}, status_code=409)
+        task_id = task["id"]
+        previous_checkpoint = task.get("checkpoint") or {}
+        tasks.update(
+            task_id,
+            status="running",
+            last_error="",
+            current_step="Resuming from saved checkpoint",
+            checkpoint={
+                **previous_checkpoint,
+                "phase": "resume_requested",
+                "resume_requested_at": time.time(),
+                "resume_message_count": len(msgs),
+            },
+        )
+    else:
+        task = tasks.create(sid, req.message)
+        task_id = task["id"]
+        initial_plan = orchestrator.seed_plan(req.message)
+        tasks.update(task_id, plan=initial_plan, current_step=initial_plan[0]["label"],
+                     checkpoint=orchestrator.checkpoint("starting", turn=0, tool_calls=0,
+                                                        images_attached=len(req.images),
+                                                        orchestration_version=1))
     msgs[0]["content"] += (
         "\n\nAUTONOMOUS EXECUTION CONTRACT (task-specific state is checkpointed):"
         "\n- Use the persisted plan as a live checklist, refine it with update_plan when needed, and keep the current step accurate."
@@ -742,7 +766,7 @@ async def task_resume(task_id: str, body: ResumeReq):
         "diagnose the last failure, and continue with the next safe useful step. "
         "Do not claim the old task is complete unless you verify the remaining work."
     )
-    return await chat(Req(session=task["session_id"], message=resume_message, auto=body.auto))
+    return await chat(Req(session=task["session_id"], message=resume_message, auto=body.auto, task_id=task_id))
 
 
 @app.get("/api/sessions/{sid}/tasks")
