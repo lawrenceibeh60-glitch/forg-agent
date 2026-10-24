@@ -105,7 +105,22 @@ async def _anthropic(p, messages, tools):
     system, out = "", []
     for m in messages:
         if m["role"] == "system": system = m["content"]
-        elif m["role"] == "user": out.append({"role": "user", "content": m["content"]})
+        elif m["role"] == "user":
+            content = m["content"]
+            if isinstance(content, list):
+                blocks = []
+                for part in content:
+                    if part.get("type") == "text":
+                        blocks.append({"type": "text", "text": part.get("text", "")})
+                    elif part.get("type") == "image_url":
+                        url = part.get("image_url", {}).get("url", "")
+                        match = re.fullmatch(r"data:image/(png|jpeg|webp|gif);base64,([A-Za-z0-9+/=]+)", url)
+                        if match:
+                            media = "image/jpeg" if match.group(1) == "jpeg" else "image/" + match.group(1)
+                            blocks.append({"type": "image", "source": {"type": "base64", "media_type": media, "data": match.group(2)}})
+                out.append({"role": "user", "content": blocks or [{"type": "text", "text": "[Unsupported image attachment]"}]})
+            else:
+                out.append({"role": "user", "content": content})
         elif m["role"] == "assistant":
             b = ([{"type": "text", "text": m["content"]}] if m.get("content") else []) + [
                 {"type": "tool_use", "id": t["id"], "name": t["function"]["name"], "input": json.loads(t["function"]["arguments"] or "{}")}
