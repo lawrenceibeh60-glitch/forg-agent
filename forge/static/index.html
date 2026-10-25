@@ -187,15 +187,34 @@ for(const id of ['workspace-files','workspace-folder','github-files','github-fol
 async function uploadSelected(files,purpose){
  let mode=purpose.startsWith('github-')?'github':'workspace',repo='',branch='',destination='';
  if(mode==='github'){repo=prompt('GitHub repository (owner/name):','');if(!repo)return;branch=prompt('Target branch (leave blank for the repository default):','')||'';destination=prompt('Destination folder in the repository (leave blank for root):','')||'';}
- if(files.length>150){alert('Choose at most 150 files per upload.');return}
- const paths=files.map(f=>f.webkitRelativePath||f.name);
- const fd=new FormData();files.forEach(f=>fd.append('files',f,f.name));fd.append('paths',JSON.stringify(paths));fd.append('sid',sid||(sid='upload'+crypto.randomUUID().replace(/-/g,'')));fd.append('mode',mode);fd.append('repo',repo);fd.append('branch',branch);fd.append('destination',destination);
- const status=add('bot','');status.innerHTML='<div class="spin" style="display:inline-block;margin-right:8px"></div>Uploading '+files.length+' file(s)…';
- try{let response=await fetch('/api/uploads',{method:'POST',body:fd});if(response.status===401){const password=prompt('Forge password');if(password){await fetch('/api/login',{method:'POST',headers:H,body:JSON.stringify({password})});response=await fetch('/api/uploads',{method:'POST',body:fd)}}
- const data=await response.json().catch(()=>({detail:'Unexpected server response'}));if(!response.ok)throw new Error(data.detail||data.error||('Upload failed (HTTP '+response.status+')'));
- if(data.mode==='github'){status.innerHTML='';md(status,'Uploaded **'+data.files+' file(s)** to `'+data.repo+'` on branch `'+data.branch+'`. [View commit]('+data.url+').');}
- else{status.innerHTML='';md(status,'Uploaded **'+data.count+' file(s)** into this Forge workspace. The folder structure is preserved. I can now inspect, edit, test, or help commit them to a GitHub repository.');refresh()}
- }catch(err){status.innerHTML='';md(status,'**Upload failed:** '+String(err.message||err))}
+ const MAX_COUNT=1000, MAX_TOTAL=1024*1024*1024, MAX_FILE=2.5*1024*1024, BATCH_BYTES=2.2*1024*1024;
+ if(files.length>MAX_COUNT){alert('Choose at most 1,000 files per upload.');return}
+ let total=0;
+ for(const file of files){if(file.size>MAX_FILE){alert('"'+file.name+'" is '+(file.size/1024/1024).toFixed(1)+' MiB. This Vercel deployment can currently accept individual files up to 2.5 MiB per upload request. Larger individual files need direct object-storage upload support.');return}total+=file.size}
+ if(total>MAX_TOTAL){alert('This folder is larger than Forge’s current 1 GiB per-selection limit. Upload it in smaller groups.');return}
+ const status=add('bot','');status.innerHTML='<div class="spin" style="display:inline-block;margin-right:8px"></div>Preparing '+files.length+' file(s)…';
+ const batches=[];let batch=[],bytes=0;
+ for(const file of files){if(batch.length&&(bytes+file.size>BATCH_BYTES||batch.length>=100)){batches.push(batch);batch=[];bytes=0}batch.push(file);bytes+=file.size}
+ if(batch.length)batches.push(batch);
+ const uploadSid=sid||(sid='upload'+crypto.randomUUID().replace(/-/g,''));
+ let uploaded=0, lastCommit='';
+ try{
+   for(let bi=0;bi<batches.length;bi++){
+     const group=batches[bi],fd=new FormData();
+     group.forEach(file=>fd.append('files',file,file.name));
+     fd.append('paths',JSON.stringify(group.map(file=>file.webkitRelativePath||file.name)));
+     fd.append('sid',uploadSid);fd.append('mode',mode);fd.append('repo',repo);fd.append('branch',branch);fd.append('destination',destination);
+     status.innerHTML='<div class="spin" style="display:inline-block;margin-right:8px"></div>Uploading batch '+(bi+1)+'/'+batches.length+' · '+uploaded+'/'+files.length+' files…';
+     let response=await fetch('/api/uploads',{method:'POST',body:fd});
+     if(response.status===401){const password=prompt('Forge password');if(password){await fetch('/api/login',{method:'POST',headers:H,body:JSON.stringify({password})});response=await fetch('/api/uploads',{method:'POST',body:fd)}}
+     const data=await response.json().catch(()=>({detail:'Unexpected server response'}));
+     if(!response.ok)throw new Error('Batch '+(bi+1)+' failed: '+(data.detail||data.error||('HTTP '+response.status))+' · '+uploaded+' of '+files.length+' files uploaded so far.');
+     uploaded+=group.length;if(data.mode==='github')lastCommit=data.url;
+   }
+   status.innerHTML='';
+   if(mode==='github')md(status,'Uploaded **'+uploaded+' file(s)** to `'+repo+'` in '+batches.length+' batch(es), preserving folder paths. Each batch creates a GitHub commit. [View latest commit]('+lastCommit+').');
+   else{md(status,'Uploaded **'+uploaded+' file(s)** in '+batches.length+' batches into this Forge workspace. Folder structure is preserved. I can now inspect, edit, test, or help commit them to a GitHub repository.');refresh()}
+ }catch(err){status.innerHTML='';md(status,'**Upload incomplete:** '+String(err.message||err))}
 }
 document.addEventListener('click',e=>{if(!$('#upload-wrap').contains(e.target)){$('#upload-menu').classList.remove('open');$('#upload-toggle').setAttribute('aria-expanded','false')}});
 const imageInput=$('#image-files'), attachmentTray=$('#attachments');
