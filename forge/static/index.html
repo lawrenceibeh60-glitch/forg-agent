@@ -180,42 +180,11 @@ async function openS(id){sid=id;log.innerHTML='';empty(false);if(innerWidth<800)
 async function resumeTask(id){try{const t=await j('/api/tasks/'+encodeURIComponent(id));sid=t.session_id;await openS(sid);resumeTaskId=id;const cp=JSON.stringify(t.checkpoint||{}).slice(0,2500);$('#in').value='Continue the interrupted task: '+t.goal+'\nLast step: '+(t.current_step||'unknown')+'\nSaved checkpoint: '+cp+'\nInspect the current workspace, preserve verified progress, diagnose the last failure, and continue from the next useful step. Do not repeat the same failed action without changing the diagnosis.';$('#in').focus()}catch(e){resumeTaskId=null;alert('Could not load task checkpoint: '+e.message)}}
 async function testSandbox(){const el=$('#sandbox-status');el.textContent='Testing Render sandbox… this may take up to a minute';try{const r=await post('/api/sandbox/test');el.textContent='Sandbox test passed · '+(r.message||'isolated execution works')}catch(e){el.textContent='Sandbox test failed · '+e.message;}}
 async function previewSandbox(){if(!sid){alert('Start or open a chat first so Forge has a sandbox workspace.');return}try{const f=(await j('/api/files?sid='+encodeURIComponent(sid))).files;const p=f.find(x=>/[.]html?$/i.test(x));if(!p){alert('No HTML file found in this chat sandbox yet. Ask Forge to create an index.html first.');return}location.href='/api/sandbox/preview?sid='+encodeURIComponent(sid)+'&path='+encodeURIComponent(p)}catch(e){alert(e.message)}}
-let uploadPurpose='workspace-files';
+let uploadPurpose='workspace-files',pendingFiles=[];
 function toggleUploadMenu(){const m=$('#upload-menu'),open=!m.classList.contains('open');m.classList.toggle('open',open);$('#upload-toggle').setAttribute('aria-expanded',String(open))}
 function pickUpload(kind){uploadPurpose=kind;$('#upload-menu').classList.remove('open');$('#upload-toggle').setAttribute('aria-expanded','false');const input=$('#'+kind);input.value='';input.click()}
-for(const id of ['workspace-files','workspace-folder','github-files','github-folder'])$('#'+id).addEventListener('change',()=>{const fs=Array.from($('#'+id).files||[]);if(fs.length)uploadSelected(fs,uploadPurpose);$('#'+id).value=''});
-async function uploadSelected(files,purpose){
- let mode=purpose.startsWith('github-')?'github':'workspace',repo='',branch='',destination='';
- if(mode==='github'){repo=prompt('GitHub repository (owner/name):','');if(!repo)return;branch=prompt('Target branch (leave blank for the repository default):','')||'';destination=prompt('Destination folder in the repository (leave blank for root):','')||'';}
- const MAX_COUNT=1000, MAX_TOTAL=1024*1024*1024, MAX_FILE=2.5*1024*1024, BATCH_BYTES=2.2*1024*1024;
- if(files.length>MAX_COUNT){alert('Choose at most 1,000 files per upload.');return}
- let total=0;
- for(const file of files){if(file.size>MAX_FILE){alert('"'+file.name+'" is '+(file.size/1024/1024).toFixed(1)+' MiB. This Vercel deployment can currently accept individual files up to 2.5 MiB per upload request. Larger individual files need direct object-storage upload support.');return}total+=file.size}
- if(total>MAX_TOTAL){alert('This folder is larger than Forge’s current 1 GiB per-selection limit. Upload it in smaller groups.');return}
- const status=add('bot','');status.innerHTML='<div class="spin" style="display:inline-block;margin-right:8px"></div>Preparing '+files.length+' file(s)…';
- const batches=[];let batch=[],bytes=0;
- for(const file of files){if(batch.length&&(bytes+file.size>BATCH_BYTES||batch.length>=100)){batches.push(batch);batch=[];bytes=0}batch.push(file);bytes+=file.size}
- if(batch.length)batches.push(batch);
- const uploadSid=sid||(sid='upload'+crypto.randomUUID().replace(/-/g,''));
- let uploaded=0, lastCommit='';
- try{
-   for(let bi=0;bi<batches.length;bi++){
-     const group=batches[bi],fd=new FormData();
-     group.forEach(file=>fd.append('files',file,file.name));
-     fd.append('paths',JSON.stringify(group.map(file=>file.webkitRelativePath||file.name)));
-     fd.append('sid',uploadSid);fd.append('mode',mode);fd.append('repo',repo);fd.append('branch',branch);fd.append('destination',destination);
-     status.innerHTML='<div class="spin" style="display:inline-block;margin-right:8px"></div>Uploading batch '+(bi+1)+'/'+batches.length+' · '+uploaded+'/'+files.length+' files…';
-     let response=await fetch('/api/uploads',{method:'POST',body:fd});
-     if(response.status===401){const password=prompt('Forge password');if(password){await fetch('/api/login',{method:'POST',headers:H,body:JSON.stringify({password})});response=await fetch('/api/uploads',{method:'POST',body:fd})}}
-     const data=await response.json().catch(()=>({detail:'Unexpected server response'}));
-     if(!response.ok)throw new Error('Batch '+(bi+1)+' failed: '+(data.detail||data.error||('HTTP '+response.status))+' · '+uploaded+' of '+files.length+' files uploaded so far.');
-     uploaded+=group.length;if(data.mode==='github')lastCommit=data.url;
-   }
-   status.innerHTML='';
-   if(mode==='github')md(status,'Uploaded **'+uploaded+' file(s)** to `'+repo+'` in '+batches.length+' batch(es), preserving folder paths. Each batch creates a GitHub commit. [View latest commit]('+lastCommit+').');
-   else{md(status,'Uploaded **'+uploaded+' file(s)** in '+batches.length+' batches into this Forge workspace. Folder structure is preserved. I can now inspect, edit, test, or help commit them to a GitHub repository.');refresh()}
- }catch(err){status.innerHTML='';md(status,'**Upload incomplete:** '+String(err.message||err))}
-}
+for(const id of ['workspace-files','workspace-folder'])$('#'+id).addEventListener('change',()=>{const fs=Array.from($('#'+id).files||[]);if(fs.length)stageFiles(fs);$('#'+id).value=''});
+function stageFiles(files){if(pendingFiles.length+files.length>1000){alert('Forge supports up to 1,000 pending files.');return}const seen=new Set(pendingFiles.map(x=>x.path));for(const file of Array.from(files)){const path=file.webkitRelativePath||file.name;if(!seen.has(path)){pendingFiles.push({file,path});seen.add(path)}}renderAttachments()}
 document.addEventListener('click',e=>{if(!$('#upload-wrap').contains(e.target)){$('#upload-menu').classList.remove('open');$('#upload-toggle').setAttribute('aria-expanded','false')}});
 const imageInput=$('#image-files'), attachmentTray=$('#attachments');
 function renderAttachments(){attachmentTray.innerHTML='';attachmentTray.style.display=pendingImages.length?'flex':'none';pendingImages.forEach((src,i)=>{const wrap=document.createElement('div');wrap.style.cssText='position:relative;width:68px;height:58px';const im=document.createElement('img');im.src=src;im.alt='Reference image '+(i+1);im.style.cssText='width:68px;height:58px;object-fit:cover;border:1px solid var(--line);border-radius:8px';const rm=document.createElement('button');rm.type='button';rm.textContent='×';rm.title='Remove image';rm.style.cssText='position:absolute;right:2px;top:2px;border:0;border-radius:50%;background:var(--bg);color:var(--ink);width:20px;height:20px';rm.onclick=()=>{pendingImages.splice(i,1);renderAttachments()};wrap.append(im,rm);attachmentTray.append(wrap)})}
