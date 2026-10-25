@@ -88,7 +88,7 @@ async def _github_upload(repo: str, branch: str, destination: str, items):
 
         repo_info = await call("GET", f"/repos/{repo}")
         branch = branch.strip() or repo_info.get("default_branch") or "main"
-        ref = await call("GET", f"/repos/{repo}/git/ref/heads/{quote(branch, safe="")}")
+        ref = await call("GET", f"/repos/{repo}/git/ref/heads/{quote(branch, safe='')}")
         parent_sha = ref.get("object", {}).get("sha")
         if not parent_sha:
             raise HTTPException(502, "GitHub did not return the target branch head.")
