@@ -99,6 +99,14 @@ dialog input,dialog select,dialog textarea{font-size:16px}
 }
 .i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:middle}
 #pills button{display:flex;gap:7px;align-items:center}#go{display:grid;place-items:center}.icon{display:grid;place-items:center}.row .i{color:var(--mute)}
+
+#upload-wrap{position:relative;display:inline-flex}
+#upload-menu{display:none;position:absolute;left:0;bottom:42px;z-index:20;min-width:210px;padding:6px;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--sh)}
+#upload-menu.open{display:grid;gap:2px}
+#upload-menu button{display:flex;align-items:center;gap:9px;text-align:left;border:0;background:transparent;padding:9px 10px;border-radius:8px;font-size:13px;white-space:nowrap}
+#upload-menu button:hover{background:var(--side)}
+#upload-menu small{display:block;color:var(--mute);font-size:11px}
+@media(max-width:520px){#upload-menu{left:0;bottom:42px;min-width:190px}.bar{gap:4px}.bar .btn{padding:5px 8px}}
 </style></head><body>
 <aside id="side"><div class="logo"><svg id="lg" viewBox="0 0 24 24"><use href="#star"/></svg>Forge</div>
 <button class="nav" onclick="newChat()"><span class="ic"><svg class="i" viewBox="0 0 24 24" style="width:14px;height:14px;stroke:#fff;stroke-width:2.4"><use href="#i-plus"/></svg></span>New chat</button>
@@ -114,7 +122,19 @@ dialog input,dialog select,dialog textarea{font-size:16px}
 <main id="m" class="empty"><div class="top"><button class="icon" onclick="toggleSide()" aria-label="Toggle sidebar"><svg class="i" viewBox="0 0 24 24"><use href="#i-menu"/></svg></button></div>
 <div id="feed"><div class="wrap" id="log"></div></div>
 <form id="f"><div class="box"><div id="attachments" style="display:none;gap:8px;padding:8px 10px;flex-wrap:wrap"></div><textarea id="in" dir="auto" rows="1" placeholder="Ask Forge anything, or attach reference images…"></textarea>
-<div class="bar"><input id="image-files" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden><button type="button" class="btn" id="attach-image" title="Attach reference images" aria-label="Attach reference images" onclick="document.getElementById('image-files').click()">＋ Image</button><label class="tg" title="Run tools without asking"><input type="checkbox" id="auto"> Auto-approve</label>
+<div class="bar">
+<div id="upload-wrap"><button type="button" class="btn" id="upload-toggle" aria-expanded="false" onclick="toggleUploadMenu()">＋ Add files</button>
+<div id="upload-menu" role="menu">
+<button type="button" onclick="pickUpload('workspace-files')">▤ Upload files<small>Send files into this chat workspace</small></button>
+<button type="button" onclick="pickUpload('workspace-folder')">▱ Upload folder<small>Keep the folder structure</small></button>
+<button type="button" onclick="pickUpload('github-files')">↥ Upload to GitHub…<small>Commit selected files to any repo</small></button>
+<button type="button" onclick="pickUpload('github-folder')">⇧ Upload folder to GitHub…<small>Commit a folder and its contents</small></button>
+</div></div>
+<input id="workspace-files" type="file" multiple hidden>
+<input id="workspace-folder" type="file" webkitdirectory directory multiple hidden>
+<input id="github-files" type="file" multiple hidden>
+<input id="github-folder" type="file" webkitdirectory directory multiple hidden>
+<input id="image-files" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden><button type="button" class="btn" id="attach-image" title="Attach reference images" aria-label="Attach reference images" onclick="document.getElementById('image-files').click()">＋ Image</button><label class="tg" title="Run tools without asking"><input type="checkbox" id="auto"> Auto-approve</label>
 <button type="button" id="model" onclick="openSet()">Add a model</button>
 <button id="go" type="submit" aria-label="Send"><svg class="i" viewBox="0 0 24 24"><use href="#i-up"/></svg></button></div></div></form>
 <div id="pills"></div></main>
@@ -160,6 +180,24 @@ async function openS(id){sid=id;log.innerHTML='';empty(false);if(innerWidth<800)
 async function resumeTask(id){try{const t=await j('/api/tasks/'+encodeURIComponent(id));sid=t.session_id;await openS(sid);resumeTaskId=id;const cp=JSON.stringify(t.checkpoint||{}).slice(0,2500);$('#in').value='Continue the interrupted task: '+t.goal+'\nLast step: '+(t.current_step||'unknown')+'\nSaved checkpoint: '+cp+'\nInspect the current workspace, preserve verified progress, diagnose the last failure, and continue from the next useful step. Do not repeat the same failed action without changing the diagnosis.';$('#in').focus()}catch(e){resumeTaskId=null;alert('Could not load task checkpoint: '+e.message)}}
 async function testSandbox(){const el=$('#sandbox-status');el.textContent='Testing Render sandbox… this may take up to a minute';try{const r=await post('/api/sandbox/test');el.textContent='Sandbox test passed · '+(r.message||'isolated execution works')}catch(e){el.textContent='Sandbox test failed · '+e.message;}}
 async function previewSandbox(){if(!sid){alert('Start or open a chat first so Forge has a sandbox workspace.');return}try{const f=(await j('/api/files?sid='+encodeURIComponent(sid))).files;const p=f.find(x=>/[.]html?$/i.test(x));if(!p){alert('No HTML file found in this chat sandbox yet. Ask Forge to create an index.html first.');return}location.href='/api/sandbox/preview?sid='+encodeURIComponent(sid)+'&path='+encodeURIComponent(p)}catch(e){alert(e.message)}}
+let uploadPurpose='workspace-files';
+function toggleUploadMenu(){const m=$('#upload-menu'),open=!m.classList.contains('open');m.classList.toggle('open',open);$('#upload-toggle').setAttribute('aria-expanded',String(open))}
+function pickUpload(kind){uploadPurpose=kind;$('#upload-menu').classList.remove('open');$('#upload-toggle').setAttribute('aria-expanded','false');const input=$('#'+kind);input.value='';input.click()}
+for(const id of ['workspace-files','workspace-folder','github-files','github-folder'])$('#'+id).addEventListener('change',()=>{const fs=Array.from($('#'+id).files||[]);if(fs.length)uploadSelected(fs,uploadPurpose);$('#'+id).value=''});
+async function uploadSelected(files,purpose){
+ let mode=purpose.startsWith('github-')?'github':'workspace',repo='',branch='',destination='';
+ if(mode==='github'){repo=prompt('GitHub repository (owner/name):','');if(!repo)return;branch=prompt('Target branch (leave blank for the repository default):','')||'';destination=prompt('Destination folder in the repository (leave blank for root):','')||'';}
+ if(files.length>150){alert('Choose at most 150 files per upload.');return}
+ const paths=files.map(f=>f.webkitRelativePath||f.name);
+ const fd=new FormData();files.forEach(f=>fd.append('files',f,f.name));fd.append('paths',JSON.stringify(paths));fd.append('sid',sid||(sid='upload'+crypto.randomUUID().replace(/-/g,'')));fd.append('mode',mode);fd.append('repo',repo);fd.append('branch',branch);fd.append('destination',destination);
+ const status=add('bot','');status.innerHTML='<div class="spin" style="display:inline-block;margin-right:8px"></div>Uploading '+files.length+' file(s)…';
+ try{let response=await fetch('/api/uploads',{method:'POST',body:fd});if(response.status===401){const password=prompt('Forge password');if(password){await fetch('/api/login',{method:'POST',headers:H,body:JSON.stringify({password})});response=await fetch('/api/uploads',{method:'POST',body:fd)}}
+ const data=await response.json().catch(()=>({detail:'Unexpected server response'}));if(!response.ok)throw new Error(data.detail||data.error||('Upload failed (HTTP '+response.status+')'));
+ if(data.mode==='github'){status.innerHTML='';md(status,'Uploaded **'+data.files+' file(s)** to `'+data.repo+'` on branch `'+data.branch+'`. [View commit]('+data.url+').');}
+ else{status.innerHTML='';md(status,'Uploaded **'+data.count+' file(s)** into this Forge workspace. The folder structure is preserved. I can now inspect, edit, test, or help commit them to a GitHub repository.');refresh()}
+ }catch(err){status.innerHTML='';md(status,'**Upload failed:** '+String(err.message||err))}
+}
+document.addEventListener('click',e=>{if(!$('#upload-wrap').contains(e.target)){$('#upload-menu').classList.remove('open');$('#upload-toggle').setAttribute('aria-expanded','false')}});
 const imageInput=$('#image-files'), attachmentTray=$('#attachments');
 function renderAttachments(){attachmentTray.innerHTML='';attachmentTray.style.display=pendingImages.length?'flex':'none';pendingImages.forEach((src,i)=>{const wrap=document.createElement('div');wrap.style.cssText='position:relative;width:68px;height:58px';const im=document.createElement('img');im.src=src;im.alt='Reference image '+(i+1);im.style.cssText='width:68px;height:58px;object-fit:cover;border:1px solid var(--line);border-radius:8px';const rm=document.createElement('button');rm.type='button';rm.textContent='×';rm.title='Remove image';rm.style.cssText='position:absolute;right:2px;top:2px;border:0;border-radius:50%;background:var(--bg);color:var(--ink);width:20px;height:20px';rm.onclick=()=>{pendingImages.splice(i,1);renderAttachments()};wrap.append(im,rm);attachmentTray.append(wrap)})}
 imageInput.addEventListener('change',async()=>{const files=Array.from(imageInput.files||[]);for(const file of files){if(pendingImages.length>=4){alert('Attach up to 4 reference images per message.');break}if(!/^image\/(png|jpeg|webp|gif)$/.test(file.type)){alert('Use PNG, JPEG, WEBP, or GIF images.');continue}if(file.size>3*1024*1024){alert('Each reference image must be 3 MB or smaller.');continue}try{const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(file)});pendingImages.push(data)}catch{alert('Could not read one of the selected images.')}}imageInput.value='';renderAttachments()});

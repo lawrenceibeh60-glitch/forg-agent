@@ -13,6 +13,7 @@ from mcp_client import mcp
 
 from prompts import SYSTEM
 import agent_runtime
+from uploads import router as uploads_router
 RISKY = {"run_command", "git", "github_create_pr", "render_deploy", "delete_file", "move_file", "bulk_replace", "python_eval", "node_eval", "pip_install", "npm_install", "http_request", "github_create_issue", "github_pr_comment", "apply_patch", "repo_commit_push", "publish_to_github", "github_create_repo", "github_put_file", "github_merge_pr", "bg_start", "bg_stop", "linux_package_install", "ipython_eval", "preview_start", "preview_stop", "render_set_env", "render_restart", "render_suspend", "render_resume", "render_create_service"}
 EDIT = {"write_file", "edit_file", "apply_patch", "append_file", "bulk_replace"}
 VERIFY = {"run_command", "run_tests", "lint", "python_eval", "node_eval", "check_url", "http_request"}
@@ -63,6 +64,7 @@ async def life(_):
     for n in list(mcp.stops): await mcp.disconnect(n, persist=False)
 
 app = FastAPI(lifespan=life)
+app.include_router(uploads_router)
 
 CUSTOM_PROMPT = Path("data/custom_prompt.txt")
 
