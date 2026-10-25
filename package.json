@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "@neon/config": "^1.9.3",
+    "@neon/env": "^1.6.4"
+  },
+  "scripts": {
+    "neon:plan": "npx neon@latest config plan",
+    "neon:deploy": "npx neon@latest deploy"
+  }
+}
