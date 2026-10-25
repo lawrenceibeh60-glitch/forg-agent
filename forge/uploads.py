@@ -107,7 +107,7 @@ async def _github_upload(repo: str, branch: str, destination: str, items):
         commit = await call("POST", f"/repos/{repo}/git/commits", json={
             "message": f"Upload {len(items)} file(s) with Forge",
             "tree": tree["sha"], "parents": [parent_sha]})
-        updated = await call("PATCH", f"/repos/{repo}/git/refs/heads/{quote(branch, safe="")}",
+        updated = await call("PATCH", f"/repos/{repo}/git/refs/heads/{quote(branch, safe='')}",
                              json={"sha": commit["sha"], "force": False})
     return {"ok": True, "mode": "github", "repo": repo, "branch": branch,
             "files": len(items), "commit": commit["sha"],
