@@ -4,6 +4,7 @@ import json
 import os
 import re
 from pathlib import Path, PurePosixPath
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -87,7 +88,7 @@ async def _github_upload(repo: str, branch: str, destination: str, items):
 
         repo_info = await call("GET", f"/repos/{repo}")
         branch = branch.strip() or repo_info.get("default_branch") or "main"
-        ref = await call("GET", f"/repos/{repo}/git/ref/heads/{branch}")
+        ref = await call("GET", f"/repos/{repo}/git/ref/heads/{quote(branch, safe="")}")
         parent_sha = ref.get("object", {}).get("sha")
         if not parent_sha:
             raise HTTPException(502, "GitHub did not return the target branch head.")
@@ -106,7 +107,7 @@ async def _github_upload(repo: str, branch: str, destination: str, items):
         commit = await call("POST", f"/repos/{repo}/git/commits", json={
             "message": f"Upload {len(items)} file(s) with Forge",
             "tree": tree["sha"], "parents": [parent_sha]})
-        updated = await call("PATCH", f"/repos/{repo}/git/refs/heads/{branch}",
+        updated = await call("PATCH", f"/repos/{repo}/git/refs/heads/{quote(branch, safe="")}",
                              json={"sha": commit["sha"], "force": False})
     return {"ok": True, "mode": "github", "repo": repo, "branch": branch,
             "files": len(items), "commit": commit["sha"],
