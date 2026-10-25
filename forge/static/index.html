@@ -192,7 +192,7 @@ async function uploadSelected(files,purpose){
  const fd=new FormData();files.forEach(f=>fd.append('files',f,f.name));fd.append('paths',JSON.stringify(paths));fd.append('sid',sid||(sid='upload'+crypto.randomUUID().replace(/-/g,'')));fd.append('mode',mode);fd.append('repo',repo);fd.append('branch',branch);fd.append('destination',destination);
  const status=add('bot','');status.innerHTML='<div class="spin" style="display:inline-block;margin-right:8px"></div>Uploading '+files.length+' file(s)…';
  try{let response=await fetch('/api/uploads',{method:'POST',body:fd});if(response.status===401){const password=prompt('Forge password');if(password){await fetch('/api/login',{method:'POST',headers:H,body:JSON.stringify({password})});response=await fetch('/api/uploads',{method:'POST',body:fd)}}
- const data=await response.json().catch(()=>({detail:'Unexpected server response'}));if(!response.ok)throw new Error(data.detail||data.error||('Upload failed (HTTP '+response.status+')));
+ const data=await response.json().catch(()=>({detail:'Unexpected server response'}));if(!response.ok)throw new Error(data.detail||data.error||('Upload failed (HTTP '+response.status+')'));
  if(data.mode==='github'){status.innerHTML='';md(status,'Uploaded **'+data.files+' file(s)** to `'+data.repo+'` on branch `'+data.branch+'`. [View commit]('+data.url+').');}
  else{status.innerHTML='';md(status,'Uploaded **'+data.count+' file(s)** into this Forge workspace. The folder structure is preserved. I can now inspect, edit, test, or help commit them to a GitHub repository.');refresh()}
  }catch(err){status.innerHTML='';md(status,'**Upload failed:** '+String(err.message||err))}
