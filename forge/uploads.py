@@ -13,9 +13,10 @@ import connections
 import tools
 
 router = APIRouter()
-MAX_FILES = 150
-MAX_TOTAL_BYTES = 50 * 1024 * 1024
-MAX_FILE_BYTES = 15 * 1024 * 1024
+MAX_FILES = 1000
+# Vercel Functions impose a hard request-body ceiling; keep each multipart request below it.
+MAX_TOTAL_BYTES = 3 * 1024 * 1024
+MAX_FILE_BYTES = 3 * 1024 * 1024
 BLOCKED_NAMES = {".env", ".env.local", ".env.production", ".netrc", ".npmrc", ".pypirc",
                  "credentials", "credentials.json", "secrets.json", "id_rsa", "id_ed25519",
                  "known_hosts"}
@@ -39,7 +40,7 @@ async def _read_files(files: list[UploadFile], paths_json: str):
     if not files:
         raise HTTPException(400, "Choose at least one file.")
     if len(files) > MAX_FILES:
-        raise HTTPException(413, f"Maximum {MAX_FILES} files per upload.")
+        raise HTTPException(413, f"Maximum {MAX_FILES} files per upload request.")
     try:
         paths = json.loads(paths_json) if paths_json else []
     except json.JSONDecodeError:
@@ -51,10 +52,10 @@ async def _read_files(files: list[UploadFile], paths_json: str):
         rel = _safe_relative(str(paths[i] if paths else upload.filename or ""))
         data = await upload.read(MAX_FILE_BYTES + 1)
         if len(data) > MAX_FILE_BYTES:
-            raise HTTPException(413, f"{rel} exceeds the 15 MiB per-file limit.")
+            raise HTTPException(413, f"{rel} exceeds the 3 MiB per-request file limit on this Vercel deployment. Upload larger files through a direct object-storage upload integration.")
         total += len(data)
         if total > MAX_TOTAL_BYTES:
-            raise HTTPException(413, "Total upload exceeds the 50 MiB limit.")
+            raise HTTPException(413, "This upload batch exceeds 3 MiB. Forge should split the selected files into smaller batches.")
         result.append((rel, data))
     return result
 
