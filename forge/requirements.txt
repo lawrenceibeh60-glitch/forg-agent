@@ -1,5 +1,6 @@
 # Python 3.12 is the supported runtime (see render.yaml and CI).
 fastapi==0.115.12
+python-multipart==0.0.20
 uvicorn[standard]==0.34.0
 httpx==0.28.1
 python-dotenv==1.0.1
