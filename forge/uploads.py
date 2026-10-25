@@ -115,6 +115,22 @@ async def _github_upload(repo: str, branch: str, destination: str, items):
             "url": f"https://github.com/{repo}/commit/{commit['sha']}"}
 
 
+@router.get("/api/github/repositories")
+async def github_repositories():
+    token = connections.get_access_token("github") or os.getenv("GITHUB_TOKEN", "")
+    if not token:
+        raise HTTPException(401, "Connect GitHub in Forge Settings first.")
+    async with httpx.AsyncClient(timeout=25, headers=_github_headers(token)) as client:
+        response = await client.get("https://api.github.com/user/repos", params={"per_page": 100, "sort": "pushed", "affiliation": "owner,collaborator,organization_member"})
+        try:
+            data = response.json()
+        except ValueError:
+            data = []
+        if response.status_code >= 400:
+            message = data.get("message", "GitHub repository listing failed") if isinstance(data, dict) else "GitHub repository listing failed"
+            raise HTTPException(response.status_code, message)
+    return {"repositories": [{"full_name": item.get("full_name", ""), "private": bool(item.get("private")), "default_branch": item.get("default_branch", "main")} for item in data if item.get("full_name")]}
+
 @router.post("/api/uploads")
 async def upload_files(
     files: list[UploadFile] = File(...),
