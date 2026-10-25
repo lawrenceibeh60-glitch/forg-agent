@@ -206,7 +206,7 @@ async function uploadSelected(files,purpose){
      fd.append('sid',uploadSid);fd.append('mode',mode);fd.append('repo',repo);fd.append('branch',branch);fd.append('destination',destination);
      status.innerHTML='<div class="spin" style="display:inline-block;margin-right:8px"></div>Uploading batch '+(bi+1)+'/'+batches.length+' · '+uploaded+'/'+files.length+' files…';
      let response=await fetch('/api/uploads',{method:'POST',body:fd});
-     if(response.status===401){const password=prompt('Forge password');if(password){await fetch('/api/login',{method:'POST',headers:H,body:JSON.stringify({password})});response=await fetch('/api/uploads',{method:'POST',body:fd)}}
+     if(response.status===401){const password=prompt('Forge password');if(password){await fetch('/api/login',{method:'POST',headers:H,body:JSON.stringify({password})});response=await fetch('/api/uploads',{method:'POST',body:fd})}}
      const data=await response.json().catch(()=>({detail:'Unexpected server response'}));
      if(!response.ok)throw new Error('Batch '+(bi+1)+' failed: '+(data.detail||data.error||('HTTP '+response.status))+' · '+uploaded+' of '+files.length+' files uploaded so far.');
      uploaded+=group.length;if(data.mode==='github')lastCommit=data.url;
